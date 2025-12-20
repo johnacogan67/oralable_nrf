@@ -1,0 +1,14 @@
+# WARNING. THIS FILE IS AUTO-GENERATED. DO NOT MODIFY!
+#
+# This file contains build system settings derived from your modules.
+#
+# Modules may be set via ZEPHYR_MODULES, ZEPHYR_EXTRA_MODULES,
+# and/or the west manifest file.
+#
+# See the Modules guide for more information.
+"BOARD_ROOT":"/Users/johnacogan67/tgm_firmware/tgm_firmware"
+"DTS_ROOT":"/Users/johnacogan67/tgm_firmware/tgm_firmware"
+"BOARD_ROOT":"/Users/johnacogan67/tgm_firmware/nrf"
+"DTS_ROOT":"/Users/johnacogan67/tgm_firmware/nrf"
+"MODULE_EXT_ROOT":"/Users/johnacogan67/tgm_firmware/nrf"
+"SOC_ROOT":"/Users/johnacogan67/tgm_firmware/modules/soc-hwmv1"

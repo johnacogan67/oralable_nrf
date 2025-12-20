@@ -1,0 +1,2 @@
+"nrf":"/Users/johnacogan67/tgm_firmware/nrf":"/Users/johnacogan67/tgm_firmware/nrf/sysbuild"
+"mcuboot":"/Users/johnacogan67/tgm_firmware/bootloader/mcuboot":"/Users/johnacogan67/tgm_firmware/bootloader/mcuboot/boot/zephyr/sysbuild"

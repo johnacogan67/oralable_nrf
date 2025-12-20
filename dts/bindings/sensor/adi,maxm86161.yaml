@@ -1,0 +1,13 @@
+# Copyright (c) 2024 WeeGee bv
+
+description: MAXM86161 Integrated Optical Module for Heart Rate and SpO2 Measurement
+
+compatible: "adi,maxm86161"
+
+include: [sensor-device.yaml, i2c-device.yaml]
+
+properties:
+  int-gpios:
+    type: phandle-array
+    required: false
+    description: Interrupt pin.

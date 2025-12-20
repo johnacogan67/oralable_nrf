@@ -1,0 +1,17 @@
+# This file is provided so that the application can be compiled using Twister,
+# the Zephyr testing tool. In this file, multiple combinations can be specified,
+# so that you can easily test all of them locally or in CI.
+sample:
+  description: Firmware for the Teeth Grinder Monitor (TGM) application
+  name: tgm_firmware
+common:
+  sysbuild: true
+  build_only: true
+  integration_platforms:
+    - a200451
+    - pcb00003
+tests:
+  app.default: {}
+  app.debug:
+    extra_overlay_confs:
+      - debug.conf

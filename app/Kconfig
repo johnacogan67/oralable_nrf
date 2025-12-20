@@ -1,0 +1,39 @@
+# Copyright (c) 2021 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+#
+# This file is the application Kconfig entry point. All application Kconfig
+# options can be defined here or included via other application Kconfig files.
+# You can browse these options using the west targets menuconfig (terminal) or
+# guiconfig (GUI).
+
+menu "Zephyr"
+source "Kconfig.zephyr"
+endmenu
+
+config PPG_SAMPLES_PER_FRAME
+    int "Number of PPG samples per frame"
+    default 25
+    help
+      Number of PPG samples per frame. 
+
+config ACC_SAMPLES_PER_FRAME
+    int "Number of ACC samples per frame"
+    default 25
+    help
+      Number of accelerometer samples per frame. 
+
+  config BATTERY_MEASUREMENT_INTERVAL
+    int "Battery measurement interval"
+    default 300
+    help
+      Battery sampling interval in seconds.
+
+  config TEMPERATURE_MEASUREMENT_INTERVAL
+    int "Temperature measurement interval"
+    default 1
+    help
+      Temperature sampling interval in seconds.
+
+module = APP
+module-str = APP
+source "subsys/logging/Kconfig.template.log_config"

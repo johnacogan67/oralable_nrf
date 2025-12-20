@@ -1,0 +1,5 @@
+board:
+  name: a200451
+  vendor: byteexplain
+  socs:
+    - name: nrf52832

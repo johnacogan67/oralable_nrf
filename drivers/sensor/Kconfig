@@ -1,0 +1,5 @@
+# Copyright (c) 2021 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+rsource "maxm86161/Kconfig"
+rsource "lis2dtw12/Kconfig"

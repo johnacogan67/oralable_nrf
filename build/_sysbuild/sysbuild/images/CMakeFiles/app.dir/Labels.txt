@@ -1,0 +1,13 @@
+# Target labels
+ app
+# Source files and their labels
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/CMakeFiles/app
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/CMakeFiles/app.rule
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/CMakeFiles/app-complete.rule
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-build.rule
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-configure.rule
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-download.rule
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-install.rule
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-mkdir.rule
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-patch.rule
+/Users/johnacogan67/tgm_firmware/tgm_firmware/build/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-update.rule

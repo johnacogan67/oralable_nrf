@@ -1,0 +1,17 @@
+# Copyright (c) 2024 WeeGee bv
+
+config LIS2DTW12
+	bool "Driver for LIS2DTW12"
+	default n
+	select GPIO
+	help
+	  Enable driver for LIS2DTW12 sensor.
+
+
+if LIS2DTW12
+
+module = LIS2DTW12
+module-str = LIS2DTW12
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # LIS2DTW12

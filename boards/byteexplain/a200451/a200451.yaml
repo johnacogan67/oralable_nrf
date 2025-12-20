@@ -1,0 +1,18 @@
+identifier: a200451/nrf52832
+name: TGM-REV5-NRF52832
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+  - xtools
+ram: 64
+flash: 512
+supported:
+  - adc
+  - gpio
+  - counter
+  - nvs
+  - i2c
+  - watchdog
+vendor: byteexplain

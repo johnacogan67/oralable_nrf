@@ -1,0 +1,17 @@
+# Copyright (c) 2024 WeeGee bv
+
+config MAXM86161
+	bool "Driver for MAXM86161"
+	default n
+	select GPIO
+	help
+	  Enable driver for MAXM86161 sensor.
+
+
+if MAXM86161
+
+module = MAXM86161
+module-str = maxm86161
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # MAXM86161

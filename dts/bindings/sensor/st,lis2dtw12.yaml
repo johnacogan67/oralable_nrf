@@ -1,0 +1,13 @@
+# Copyright (c) 2024 WeeGee bv
+
+description: LIS2DTW12 MEMS digital output dual motion and temperature sensor
+
+compatible: "st,lis2dtw12"
+
+include: [sensor-device.yaml, i2c-device.yaml]
+
+properties:
+  int-gpios:
+    type: phandle-array
+    required: false
+    description: Interrupt pin.

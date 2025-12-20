@@ -1,0 +1,10 @@
+board:
+  name: pcb00003
+  vendor: byteexplain
+  revision:
+    format: number
+    default: "6"
+    revisions:
+      - name: "6"
+  socs:
+    - name: nrf52832
