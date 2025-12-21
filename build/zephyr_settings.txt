@@ -6,9 +6,7 @@
 # and/or the west manifest file.
 #
 # See the Modules guide for more information.
-"BOARD_ROOT":"/Users/johnacogan67/tgm_firmware/tgm_firmware"
-"DTS_ROOT":"/Users/johnacogan67/tgm_firmware/tgm_firmware"
-"BOARD_ROOT":"/Users/johnacogan67/tgm_firmware/nrf"
-"DTS_ROOT":"/Users/johnacogan67/tgm_firmware/nrf"
-"MODULE_EXT_ROOT":"/Users/johnacogan67/tgm_firmware/nrf"
-"SOC_ROOT":"/Users/johnacogan67/tgm_firmware/modules/soc-hwmv1"
+"BOARD_ROOT":"/Users/johnacogan67/Projects/nrf"
+"DTS_ROOT":"/Users/johnacogan67/Projects/nrf"
+"MODULE_EXT_ROOT":"/Users/johnacogan67/Projects/nrf"
+"SOC_ROOT":"/Users/johnacogan67/Projects/modules/soc-hwmv1"

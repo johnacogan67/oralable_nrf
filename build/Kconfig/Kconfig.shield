@@ -1,2 +1,2 @@
-osource "/Users/johnacogan67/tgm_firmware/tgm_firmware/boards/shields/*/Kconfig.shield"
-osource "/Users/johnacogan67/tgm_firmware/nrf/boards/shields/*/Kconfig.shield"
+osource "/Users/johnacogan67/Projects/tgm_firmware/boards/shields/*/Kconfig.shield"
+osource "/Users/johnacogan67/Projects/nrf/boards/shields/*/Kconfig.shield"

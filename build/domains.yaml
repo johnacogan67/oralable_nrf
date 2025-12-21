@@ -1,9 +1,0 @@
-default: app
-build_dir: /Users/johnacogan67/tgm_firmware/tgm_firmware/build
-domains:
-  - name: app
-    build_dir: /Users/johnacogan67/tgm_firmware/tgm_firmware/build/app
-  - name: mcuboot
-    build_dir: /Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot
-flash_order:
-  - app

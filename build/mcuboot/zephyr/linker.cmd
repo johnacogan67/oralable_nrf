@@ -1,5 +1,5 @@
  OUTPUT_FORMAT("elf32-littlearm")
-_region_min_align = 32;
+_region_min_align = 4;
 MEMORY
     {
     FLASH (rx) : ORIGIN = 0x0, LENGTH = 0xc000
@@ -153,7 +153,7 @@ ztest :
  . = ALIGN(4);
  } > FLASH
  __rodata_region_end = .;
- . = ALIGN(_region_min_align); . = ALIGN( 1 << LOG2CEIL(__rodata_region_end - ADDR(rom_start)));
+ . = ALIGN(_region_min_align);
  __rom_region_end = __rom_region_start + . - ADDR(rom_start);
    
     /DISCARD/ : {
@@ -168,11 +168,11 @@ ztest :
  _image_ram_start = .;
 .ramfunc : ALIGN_WITH_INPUT
 {
- . = ALIGN(_region_min_align); . = ALIGN( 1 << LOG2CEIL(__ramfunc_size));
+ . = ALIGN(_region_min_align);
  __ramfunc_start = .;
  *(.ramfunc)
  *(".ramfunc.*")
- . = ALIGN(_region_min_align); . = ALIGN( 1 << LOG2CEIL(__ramfunc_size));
+ . = ALIGN(_region_min_align);
  __ramfunc_end = .;
 } > RAM AT > FLASH
 __ramfunc_size = __ramfunc_end - __ramfunc_start;

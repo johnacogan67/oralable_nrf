@@ -1,4 +1,4 @@
-# Install script for directory: /Users/johnacogan67/tgm_firmware/nrf
+# Install script for directory: /Users/johnacogan67/Projects/nrf
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -39,19 +39,19 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/ext/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/lib/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/samples/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/subsys/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/modules/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/drivers/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/tests/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/ext/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/lib/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/samples/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/subsys/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/modules/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/drivers/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/tests/cmake_install.cmake")
 
 endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/install_local_manifest.txt"
+  file(WRITE "/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()

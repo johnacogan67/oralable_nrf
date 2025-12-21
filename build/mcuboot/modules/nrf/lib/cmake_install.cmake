@@ -1,4 +1,4 @@
-# Install script for directory: /Users/johnacogan67/tgm_firmware/nrf/lib
+# Install script for directory: /Users/johnacogan67/Projects/nrf/lib
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -39,17 +39,17 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/lib/bin/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/lib/fprotect/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/lib/flash_patch/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/lib/fatal_error/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/lib/boot_banner/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/lib/bin/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/lib/fprotect/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/lib/flash_patch/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/lib/fatal_error/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/lib/boot_banner/cmake_install.cmake")
 
 endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/nrf/lib/install_local_manifest.txt"
+  file(WRITE "/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/nrf/lib/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()

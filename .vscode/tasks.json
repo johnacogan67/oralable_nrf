@@ -1,0 +1,36 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build nRF Firmware",
+            "type": "shell",
+            "command": "west build -p always",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Prepare iOS App",
+            "type": "shell",
+            "command": "xcodebuild -workspace OralableApp.xcworkspace -scheme OralableApp -configuration Debug -sdk iphonesimulator",
+            "options": {
+                "cwd": "${workspaceFolder:oralable_ios}"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build Full Stack (Firmware + App)",
+            "dependsOn": [
+                "Build nRF Firmware",
+                "Prepare iOS App"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}

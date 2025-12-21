@@ -3,8 +3,8 @@
 
 manifest:
   self:
+    path: app   # <--- Change this from '.' or empty to 'app'
     west-commands: scripts/west-commands.yml
-
   remotes:
     - name: ncs
       url-base: https://github.com/nrfconnect

@@ -1,4 +1,4 @@
-# Install script for directory: /Users/johnacogan67/tgm_firmware/zephyr/subsys
+# Install script for directory: /Users/johnacogan67/Projects/zephyr/subsys
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -39,32 +39,32 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/canbus/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/debug/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/fb/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/fs/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/ipc/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/logging/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/mem_mgmt/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/mgmt/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/modbus/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/pm/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/portability/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/random/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/rtio/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/sd/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/stats/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/storage/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/task_wdt/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/testsuite/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/tracing/cmake_install.cmake")
-  include("/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/usb/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/canbus/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/debug/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/fb/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/fs/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/ipc/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/logging/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/mem_mgmt/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/mgmt/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/modbus/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/pm/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/portability/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/random/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/rtio/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/sd/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/stats/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/storage/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/task_wdt/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/testsuite/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/tracing/cmake_install.cmake")
+  include("/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/usb/cmake_install.cmake")
 
 endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/zephyr/subsys/install_local_manifest.txt"
+  file(WRITE "/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/zephyr/subsys/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()

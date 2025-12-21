@@ -1,0 +1,11 @@
+# Generated file used for preloading a child image
+set(CMAKE_BUILD_TYPE "" CACHE INTERNAL "NCS child image controlled")
+set(CMAKE_VERBOSE_MAKEFILE "FALSE" CACHE INTERNAL "NCS child image controlled")
+set(BOARD_DIR "/Users/johnacogan67/Projects/tgm_firmware/boards/byteexplain/pcb00003" CACHE INTERNAL "NCS child image controlled")
+set(BOARD_REVISION "6" CACHE INTERNAL "NCS child image controlled")
+set(ZEPHYR_TOOLCHAIN_VARIANT "zephyr" CACHE INTERNAL "NCS child image controlled")
+set(GNUARMEMB_TOOLCHAIN_PATH "/opt/nordic/ncs/toolchains/f8037e9b83" CACHE INTERNAL "NCS child image controlled")
+set(WEST_PYTHON "/Users/johnacogan67/.local/pipx/venvs/west/bin/python" CACHE INTERNAL "NCS child image controlled")
+set(FILE_SUFFIX "" CACHE INTERNAL "NCS child image controlled")
+set(BOARD "pcb00003/nrf52832" CACHE INTERNAL "NCS child image controlled")
+set(EXTRA_CONF_FILE ";/Users/johnacogan67/Projects/nrf/subsys/partition_manager/partition_manager_enabled.conf" CACHE INTERNAL "NCS child image controlled")

@@ -1,4 +1,4 @@
-# Install script for directory: /Users/johnacogan67/tgm_firmware/modules/lib/matter/config/nrfconnect/chip-module
+# Install script for directory: /Users/johnacogan67/Projects/modules/lib/matter/config/nrfconnect/chip-module
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -40,6 +40,6 @@ endif()
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "/Users/johnacogan67/tgm_firmware/tgm_firmware/build/mcuboot/modules/connectedhomeip/install_local_manifest.txt"
+  file(WRITE "/Users/johnacogan67/Projects/tgm_firmware/build/mcuboot/modules/connectedhomeip/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()

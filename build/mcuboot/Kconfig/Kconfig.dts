@@ -187,11 +187,6 @@ DT_COMPAT_ADI_MAX32_GCR := adi,max32-gcr
 config DT_HAS_ADI_MAX32_GCR_ENABLED
 	def_bool $(dt_compat_enabled,$(DT_COMPAT_ADI_MAX32_GCR))
 
-DT_COMPAT_ADI_MAXM86161 := adi,maxm86161
-
-config DT_HAS_ADI_MAXM86161_ENABLED
-	def_bool $(dt_compat_enabled,$(DT_COMPAT_ADI_MAXM86161))
-
 DT_COMPAT_ADI_SDP_120 := adi,sdp-120
 
 config DT_HAS_ADI_SDP_120_ENABLED
@@ -7001,11 +6996,6 @@ DT_COMPAT_ST_LIS2DS12 := st,lis2ds12
 
 config DT_HAS_ST_LIS2DS12_ENABLED
 	def_bool $(dt_compat_enabled,$(DT_COMPAT_ST_LIS2DS12))
-
-DT_COMPAT_ST_LIS2DTW12 := st,lis2dtw12
-
-config DT_HAS_ST_LIS2DTW12_ENABLED
-	def_bool $(dt_compat_enabled,$(DT_COMPAT_ST_LIS2DTW12))
 
 DT_COMPAT_ST_LIS2DU12 := st,lis2du12
 

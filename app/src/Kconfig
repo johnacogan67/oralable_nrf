@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Application source Kconfig
+
+module = APP
+module-str = app
+source "subsys/logging/Kconfig.template.log_config"
+
+config PPG_SAMPLES_PER_FRAME
+    int "Number of PPG samples per frame"
+    default 20
+    help
+      Number of PPG samples to collect per frame.
+
+config ACC_SAMPLES_PER_FRAME
+    int "Number of accelerometer samples per frame"
+    default 25
+    help
+      Number of accelerometer samples to collect per frame.
+
+config BATTERY_MEASUREMENT_INTERVAL
+    int "Battery measurement interval in seconds"
+    default 300
+    help
+      Interval between battery measurements in seconds.
+
+config TEMPERATURE_MEASUREMENT_INTERVAL
+    int "Temperature measurement interval in seconds"
+    default 1
+    help
+      Interval between temperature measurements in seconds.

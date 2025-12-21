@@ -1,0 +1,25 @@
+{
+    "format-version": 1,
+    "time": 1766300705,
+    "files": [
+        {
+            "load_address": 49664,
+            "version_MCUBOOT": "1.0.0+0",
+            "type": "application",
+            "board": "pcb00003",
+            "soc": "nrf52832",
+            "size": 200684,
+            "file": "app_update.bin",
+            "modtime": 1766300705
+        }
+    ],
+    "name": "tgm_firmware",
+    "firmware": {
+        "zephyr": {
+            "revision": "100befc70c74f7ec83dd8ac3171ee18eeddb4dbd"
+        },
+        "nrf": {
+            "revision": "5cb85570ca43bc344d3145c2338128eacf4b48ec-dirty"
+        }
+    }
+}

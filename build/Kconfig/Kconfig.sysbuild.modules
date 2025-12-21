@@ -1,8 +1,5 @@
-config ZEPHYR_TGM_FIRMWARE_MODULE
-   bool
-   default y
-menu "nrf (/Users/johnacogan67/tgm_firmware/nrf)"
-osource "/Users/johnacogan67/tgm_firmware/nrf/sysbuild/Kconfig.sysbuild"
+menu "nrf (/Users/johnacogan67/Projects/nrf)"
+osource "/Users/johnacogan67/Projects/nrf/sysbuild/Kconfig.sysbuild"
 config ZEPHYR_NRF_MODULE
 	bool
 	default y
