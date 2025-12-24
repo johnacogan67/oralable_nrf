@@ -38,16 +38,22 @@ int ppg_sensor_start(const struct i2c_dt_spec *i2c)
 		LOG_ERR("Failed to set LED range");
 	}
 
-	// Configure the PPG ADC range to be 8192nA full scale and set the pulse width to maximum
-	uint8_t ppg_config1 = 0b00010111;
+	// Configure PPG: maximum integration time (117.3μs), 16384nA ADC range
+	// Bits 7:6 = 11 (117.3μs integration time - was 01 = 58.7μs)
+	// Bits 5:4 = 01 (reserved)
+	// Bits 3:2 = 10 (16384nA ADC range for better headroom)
+	// Bits 1:0 = 11 (32768nA ADC range for PPG2)
+	uint8_t ppg_config1 = 0b11011011;
 	err = i2c_burst_write_dt(i2c, MAXM86161_REG_PPG_CONFIG1, &ppg_config1, 1);
 	if (err)
 	{
 		LOG_ERR("Failed to set PPG config 1");
 	}
 
-	// Set the sample rate to 50Hz without averaging
-	uint8_t ppg_config2 = 0b00001000;
+	// Set the sample rate to 50Hz WITH 4-sample averaging for noise reduction
+	// Bits 7:5 = 010 (4-sample averaging - reduces noise by ~50%)
+	// Bits 4:0 = 01000 (50 sps - unchanged)
+	uint8_t ppg_config2 = 0b01001000;
 	err = i2c_burst_write_dt(i2c, MAXM86161_REG_PPG_CONFIG2, &ppg_config2, 1);
 	if (err)
 	{
@@ -55,8 +61,11 @@ int ppg_sensor_start(const struct i2c_dt_spec *i2c)
 	}
 
 	// Set the drive strength of the LEDs (green = LED1, ir = LED2, red = LED3)
-	// TODO tune these values, each count = 0.12mA with LED range set to 31mA
-	uint8_t led_pa[3] = {0, 0, 0};
+	// Each count = 0.12mA with LED range set to 31mA
+	// Green (LED1): 0 (off - not needed for muscle activity sensing)
+	// IR (LED2): 128 (~15mA) - PRIMARY channel for heart rate detection
+	// Red (LED3): 32 (~4mA) - secondary channel for SpO2 calculation
+	uint8_t led_pa[3] = {0, 128, 32};
 	err = i2c_burst_write_dt(i2c, MAXM86161_REG_LED1_PA, led_pa, 3);
 	if (err)
 	{
