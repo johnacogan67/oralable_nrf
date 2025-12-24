@@ -68,7 +68,8 @@ static void take_battery_measurement(struct k_work *work)
         }
         else
         {
-            LOG_INF("Battery voltage: %dmV", battery_value);
+            uint8_t battery_pct = battery_voltage_to_percent(battery_value);
+            LOG_INF("Battery: %dmV -> %d%%", battery_value, battery_pct);
             tgm_service_send_battery_notify(battery_value);
             if (app_data_ready)
             {

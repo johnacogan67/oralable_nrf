@@ -55,6 +55,9 @@ static int update_state(bool charging_new_state, bool worn_new_state)
 {
 	int err;
 
+	LOG_INF(">>> State update: charging %d->%d, worn %d->%d, current_state=%d",
+			charging, charging_new_state, worn, worn_new_state, device_state);
+
 	if ((device_state == DEVICE_STATE_INIT) && !charging && !worn)
 	{
 		// Initialize the green LED to a low value to indicate that the device is still working
@@ -183,6 +186,9 @@ static int update_state(bool charging_new_state, bool worn_new_state)
 	// Send status update to iOS app
 	uint8_t battery_pct = battery_voltage_to_percent(battery_get_last_measurement());
 	tgm_service_send_status_notify(charging, worn, device_state, battery_pct);
+
+	LOG_INF("<<< State result: device_state=%d, charging=%d, worn=%d",
+			device_state, charging, worn);
 
 	return 0;
 }
@@ -395,13 +401,24 @@ int main(void)
     LOG_INF("Temperature monitoring started");
 
     LOG_INF("=== INITIALIZATION COMPLETE ===");
-    
-    // NEW: Power management loop
+
+    // Power management loop
     // Sensors run autonomously via interrupts and send data via BLE
-    // Main loop just needs to stay alive
+    // Main loop sends periodic status updates
+    static uint32_t status_counter = 0;
     while (1) {
         // Sleep to save power - wake every 1 second to maintain BLE connection
         k_sleep(K_SECONDS(1));
+
+        // Send status every 10 seconds for iOS visibility
+        status_counter++;
+        if (status_counter >= 10) {
+            status_counter = 0;
+            uint8_t battery_pct = battery_voltage_to_percent(battery_get_last_measurement());
+            tgm_service_send_status_notify(charging, worn, device_state, battery_pct);
+            LOG_INF("Status: charging=%d, worn=%d, state=%d, bat=%d%%",
+                    charging, worn, device_state, battery_pct);
+        }
     }
 
 	return 0;
