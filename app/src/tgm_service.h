@@ -183,7 +183,7 @@ int tgm_service_send_temp_notify(int16_t new_temp);
  * This function notifies the connected client device of an update to the battery
  * value
  *
- * @param[in] battery_value Battery value in mV (uint16)
+ * @param[in] battery_value Battery value in mV (int32)
  *
  *
  * @retval 0 If the operation was successful.

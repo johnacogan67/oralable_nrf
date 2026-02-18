@@ -30,7 +30,7 @@ static struct tgm_service_ppg_data_t tgm_service_ppg_data;
 static struct tgm_service_acc_data_t tgm_service_acc_data;
 static struct tgm_service_temp_data_t tgm_service_temp_data;
 static struct tgm_service_status_t device_status;
-static uint16_t bat_value;
+static int32_t bat_value;
 static uint64_t uuid_value;
 static char fw_version[15] = APP_VERSION_STRING;
 static struct tgm_service_cb *tgm_service_cb = NULL;
