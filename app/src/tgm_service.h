@@ -49,6 +49,9 @@
 #define BT_UUID_TGM_STATUS_VAL \
     BT_UUID_128_ENCODE(0x3a0ff009, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
 
+#define BT_UUID_TGM_BATTERY_STATS_VAL \
+    BT_UUID_128_ENCODE(0x3a0ffef2, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
+
 #define BT_UUID_TGM BT_UUID_DECLARE_128(BT_UUID_TGM_VAL)
 #define BT_UUID_TGM_PPG BT_UUID_DECLARE_128(BT_UUID_TGM_PPG_VAL)
 #define BT_UUID_TGM_ACC BT_UUID_DECLARE_128(BT_UUID_TGM_ACC_VAL)
@@ -59,8 +62,21 @@
 #define BT_UUID_TGM_READ_PPG_REG BT_UUID_DECLARE_128(BT_UUID_TGM_READ_PPG_REG_VAL)
 #define BT_UUID_TGM_WRITE_PPG_REG BT_UUID_DECLARE_128(BT_UUID_TGM_WRITE_PPG_REG_VAL)
 #define BT_UUID_TGM_STATUS BT_UUID_DECLARE_128(BT_UUID_TGM_STATUS_VAL)
+#define BT_UUID_TGM_BATTERY_STATS BT_UUID_DECLARE_128(BT_UUID_TGM_BATTERY_STATS_VAL)
 
 #define CONFIG_TEMP_SAMPLES_PER_FRAME 10
+
+/** @brief BatteryStats 6-byte BLE payload (no float; scaled uint16_t)
+ *  [Voltage_HI, Voltage_LO, Percent, mAh_Consumed_HI, mAh_Consumed_LO, Est_Mins_Remaining]
+ */
+struct tgm_battery_stats_t {
+	uint8_t voltage_hi;
+	uint8_t voltage_lo;
+	uint8_t percent;
+	uint8_t mah_consumed_hi;
+	uint8_t mah_consumed_lo;
+	uint8_t est_mins_remaining;
+};
 
 /** @brief PPG Data Struct used by the TGM service to inform the client of new PPG data. */
 struct tgm_service_ppg_data_t
@@ -223,6 +239,9 @@ int tgm_service_send_write_ppg_reg_notify(uint8_t ppg_reg_data);
  *           Otherwise, a (negative) error code is returned.
  */
 int tgm_service_send_status_notify(bool charging, bool worn, uint8_t state, uint8_t battery_pct);
+
+/** @brief Notify BatteryStats (Voltage_mV, Percent, Remaining_Minutes) every 60s */
+int tgm_service_send_battery_stats_notify(const struct tgm_battery_stats_t *stats);
 
 /**
  * @}

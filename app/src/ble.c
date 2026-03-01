@@ -8,6 +8,7 @@
 #include <zephyr/bluetooth/gatt.h>
 
 #include "ble.h"
+#include "power_profiler.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ble, CONFIG_APP_LOG_LEVEL);
@@ -75,6 +76,8 @@ void on_connected(struct bt_conn *conn, uint8_t err)
         return;
     }
 
+    power_profiler_set_state(POWER_STATE_CONN);
+
     char addr[BT_ADDR_LE_STR_LEN];
     bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
     LOG_INF("Connected to device with address %s", addr);
@@ -97,6 +100,7 @@ void on_connected(struct bt_conn *conn, uint8_t err)
 void on_disconnected(struct bt_conn *conn, uint8_t reason)
 {
     LOG_INF("Disconnected, reason %d", reason);
+    power_profiler_set_state(POWER_STATE_ADV);
 
     // Restart advertising
     k_work_submit(&adv_work);
@@ -136,6 +140,7 @@ static void advertising_process(struct k_work *work)
         LOG_ERR("Advertising failed to start, err: %d\n", err);
         return;
     }
+    power_profiler_set_state(POWER_STATE_ADV);
     LOG_INF("Advertising started\n");
 }
 

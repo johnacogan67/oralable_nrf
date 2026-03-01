@@ -29,3 +29,10 @@ config TEMPERATURE_MEASUREMENT_INTERVAL
     default 1
     help
       Interval between temperature measurements in seconds.
+
+config BATTERY_CRITICAL_LOW_SHUTDOWN
+    bool "Shutdown system when battery voltage drops below 2.8V"
+    default y
+    help
+      Protects CG-320B cells from over-discharge. When voltage drops
+      below 2.8V, the system resets to avoid chemical damage.

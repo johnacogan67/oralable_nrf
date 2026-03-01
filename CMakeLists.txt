@@ -13,6 +13,7 @@ target_sources(app PRIVATE
     src/ppg.c
     src/acc.c
     src/battery.c
+    src/power_profiler.c
     src/tgm_service.c
     drivers/sensor/maxm86161/maxm86161.c
     drivers/sensor/lis2dtw12/lis2dtw12.c

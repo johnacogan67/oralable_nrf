@@ -13,6 +13,7 @@
 #include "ppg.h"
 #include "acc.h"
 #include "battery.h"
+#include "power_profiler.h"
 #include "tgm_service.h"
 
 #include <zephyr/logging/log.h>
@@ -313,6 +314,7 @@ int main(void)
 		return err;
 	}
 
+	power_profiler_init();
 	tgm_service_init(&tgm_service_callbacks);
 
 	// Initialize the temperature monitoring

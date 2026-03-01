@@ -2,14 +2,18 @@
  * Copyright (c) 2024 WeeGee bv
  */
 
+#include <string.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
 
 #include <app_version.h>
 #include "tgm_service.h"
+#include "battery.h"
+#include "power_profiler.h"
 #include "ppg.h"
 
 #include <zephyr/logging/log.h>
@@ -22,6 +26,7 @@ static bool notify_battery;
 static bool notify_read_ppg_reg;
 static bool notify_write_ppg_reg;
 static bool notify_status;
+static bool notify_battery_stats;
 
 static uint32_t ppg_frame_counter = 0;
 static uint32_t acc_frame_counter = 0;
@@ -39,12 +44,20 @@ static void tgm_service_ccc_ppg_data_cfg_changed(const struct bt_gatt_attr *attr
 {
     LOG_INF("Enabled notifications for ppg data");
     notify_ppg_data = (value == BT_GATT_CCC_NOTIFY);
+    if (notify_ppg_data || notify_acc_data)
+        power_profiler_set_state(POWER_STATE_STREAM);
+    else
+        power_profiler_set_state(POWER_STATE_CONN);
 }
 
 static void tgm_service_ccc_acc_data_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
     LOG_INF("Enabled notifications for acc data");
     notify_acc_data = (value == BT_GATT_CCC_NOTIFY);
+    if (notify_ppg_data || notify_acc_data)
+        power_profiler_set_state(POWER_STATE_STREAM);
+    else
+        power_profiler_set_state(POWER_STATE_CONN);
 }
 
 static void tgm_service_ccc_temp_data_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
@@ -75,6 +88,36 @@ static void tgm_service_ccc_status_cfg_changed(const struct bt_gatt_attr *attr, 
 {
     LOG_INF("Enabled notifications for device status");
     notify_status = (value == BT_GATT_CCC_NOTIFY);
+}
+
+static void tgm_service_ccc_battery_stats_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
+{
+    LOG_INF("Enabled notifications for battery stats");
+    notify_battery_stats = (value == BT_GATT_CCC_NOTIFY);
+}
+
+static struct tgm_battery_stats_t battery_stats_data;
+static struct k_work_delayable battery_stats_work;
+
+static void battery_stats_work_handler(struct k_work *work)
+{
+    struct battery_usage_telemetry_t tel;
+    battery_get_usage_telemetry(&tel);
+
+    /* Build 6-byte payload: no float; scaled uint16_t for mAh (0.01 mAh units) */
+    uint16_t voltage_mv = (uint16_t)(tel.voltage_mv > 0 ? tel.voltage_mv : 0);
+    uint16_t mah_scaled = (uint16_t)(tel.mah_consumed_scaled > 0xFFFF ? 0xFFFF : tel.mah_consumed_scaled);
+    uint32_t remaining = tel.remaining_minutes;
+
+    battery_stats_data.voltage_hi = (uint8_t)((voltage_mv >> 8) & 0xFF);
+    battery_stats_data.voltage_lo = (uint8_t)(voltage_mv & 0xFF);
+    battery_stats_data.percent = tel.percent;
+    battery_stats_data.mah_consumed_hi = (uint8_t)((mah_scaled >> 8) & 0xFF);
+    battery_stats_data.mah_consumed_lo = (uint8_t)(mah_scaled & 0xFF);
+    battery_stats_data.est_mins_remaining = (remaining > 255) ? 255 : (uint8_t)remaining;
+
+    tgm_service_send_battery_stats_notify(&battery_stats_data);
+    k_work_reschedule(&battery_stats_work, K_SECONDS(60));
 }
 
 // Callback function to get the battery value when the client reads this value
@@ -236,6 +279,13 @@ BT_GATT_SERVICE_DEFINE(
         get_status_value, NULL,
         &device_status),
     BT_GATT_CCC(tgm_service_ccc_status_cfg_changed, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
+    BT_GATT_CHARACTERISTIC(
+        BT_UUID_TGM_BATTERY_STATS,
+        BT_GATT_CHRC_NOTIFY,
+        BT_GATT_PERM_READ,
+        NULL, NULL,
+        &battery_stats_data),
+    BT_GATT_CCC(tgm_service_ccc_battery_stats_cfg_changed, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 );
 
 int tgm_service_init(struct tgm_service_cb *callbacks)
@@ -244,7 +294,8 @@ int tgm_service_init(struct tgm_service_cb *callbacks)
     {
         tgm_service_cb = callbacks;
     }
-
+    k_work_init_delayable(&battery_stats_work, battery_stats_work_handler);
+    k_work_reschedule(&battery_stats_work, K_SECONDS(60));
     return 0;
 }
 
@@ -333,4 +384,14 @@ int tgm_service_send_status_notify(bool charging, bool worn, uint8_t state, uint
             charging, worn, state, battery_pct);
 
     return bt_gatt_notify(NULL, &tgm_service_svc.attrs[24], &device_status, sizeof(device_status));
+}
+
+int tgm_service_send_battery_stats_notify(const struct tgm_battery_stats_t *stats)
+{
+    if (!notify_battery_stats || !stats)
+    {
+        return -EACCES;
+    }
+    /* 6-byte payload: Voltage_HI, Voltage_LO, Percent, mAh_HI, mAh_LO, Est_Mins */
+    return bt_gatt_notify(NULL, &tgm_service_svc.attrs[27], stats, 6);
 }
