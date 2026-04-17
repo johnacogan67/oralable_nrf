@@ -1,5 +1,8 @@
 .DS_Store
 
+# Editor / tooling caches
+/.cache/
+
 # Build artifacts
 /build/
 /build_*/
