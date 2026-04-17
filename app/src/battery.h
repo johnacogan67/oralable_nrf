@@ -26,4 +26,10 @@ uint8_t battery_get_percentage(void);
 /** Populate telemetry from battery ADC + power_profiler (links to power_profiler values) */
 void battery_get_usage_telemetry(struct battery_usage_telemetry_t *out);
 
+/** Update periodic measurement interval (seconds). 0 disables periodic rescheduling. */
+void battery_set_measurement_interval_seconds(uint16_t seconds);
+
+/** Returns current measurement interval (seconds). */
+uint16_t battery_get_measurement_interval_seconds(void);
+
 #endif /* BATTERY_H_ */

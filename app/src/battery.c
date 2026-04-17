@@ -23,6 +23,9 @@
 LOG_MODULE_REGISTER(battery, CONFIG_APP_LOG_LEVEL);
 
 #define VOLTAGE_DIVIDER_SCALE 11
+/* Plausible LiPo voltage bounds (mV) for sanity-checking scaling. */
+#define BATTERY_VOLTAGE_MIN_MV 2000
+#define BATTERY_VOLTAGE_MAX_MV 5000
 
 /* CG-320B discharge curve: 4.35V = 100%, 3.0V = 0% */
 #define CG320B_VMAX_MV 4350
@@ -52,6 +55,13 @@ static int32_t battery_value;
 static struct k_work_delayable battery_measurement_work;
 
 static battery_data_ready_t app_data_ready;
+
+static uint16_t measurement_interval_s = CONFIG_BATTERY_MEASUREMENT_INTERVAL;
+
+static bool is_plausible_battery_mv(int32_t mv)
+{
+    return (mv >= BATTERY_VOLTAGE_MIN_MV && mv <= BATTERY_VOLTAGE_MAX_MV);
+}
 
 static void take_battery_measurement(struct k_work *work)
 {
@@ -88,7 +98,40 @@ static void take_battery_measurement(struct k_work *work)
         else
         {
             /* Scale to actual battery voltage */
-            battery_value = raw_mv * VOLTAGE_DIVIDER_SCALE;
+            /* Default scaling: SAADC pin sees Vbat / 11. */
+            const int32_t v_div = raw_mv * VOLTAGE_DIVIDER_SCALE;
+            /* Fallbacks for misconfigured gain/overlay builds:
+             * - Some boards/builds may end up with an effective 6x mismatch in adc_raw_to_millivolts_dt().
+             * - Some hardware variants may not match the assumed divider scale.
+             */
+            const int32_t v_nodiv = raw_mv;
+            const int32_t v_div_over6 = (raw_mv * VOLTAGE_DIVIDER_SCALE) / 6;
+            const int32_t v_nodiv_over6 = raw_mv / 6;
+
+            int32_t chosen = v_div;
+            if (!is_plausible_battery_mv(chosen)) {
+                if (is_plausible_battery_mv(v_div_over6)) {
+                    chosen = v_div_over6;
+                    LOG_WRN("Battery scaling fallback: using divider/6 (raw_mv=%d -> %dmV)", raw_mv, chosen);
+                } else if (is_plausible_battery_mv(v_nodiv)) {
+                    chosen = v_nodiv;
+                    LOG_WRN("Battery scaling fallback: using no-divider (raw_mv=%d -> %dmV)", raw_mv, chosen);
+                } else if (is_plausible_battery_mv(v_nodiv_over6)) {
+                    chosen = v_nodiv_over6;
+                    LOG_WRN("Battery scaling fallback: using no-divider/6 (raw_mv=%d -> %dmV)", raw_mv, chosen);
+                } else {
+                    /* Last resort: clamp into range to avoid emitting nonsense values. */
+                    if (chosen < BATTERY_VOLTAGE_MIN_MV) {
+                        chosen = BATTERY_VOLTAGE_MIN_MV;
+                    } else if (chosen > BATTERY_VOLTAGE_MAX_MV) {
+                        chosen = BATTERY_VOLTAGE_MAX_MV;
+                    }
+                    LOG_WRN("Battery scaling out of range: raw_mv=%d v_div=%d clamped_to=%dmV",
+                            raw_mv, v_div, chosen);
+                }
+            }
+
+            battery_value = chosen;
 
             /* Rolling max: ignore brief drops during LED pulses */
             voltage_history[voltage_history_idx] = battery_value;
@@ -123,8 +166,11 @@ static void take_battery_measurement(struct k_work *work)
         LOG_ERR("Failed to disable battery voltage divider, err %d", err);
     }
 
-    // Schedule the next measurement
-    k_work_reschedule(&battery_measurement_work, K_SECONDS(CONFIG_BATTERY_MEASUREMENT_INTERVAL));
+    // Schedule the next measurement (runtime-configurable)
+    if (measurement_interval_s > 0)
+    {
+        k_work_reschedule(&battery_measurement_work, K_SECONDS(measurement_interval_s));
+    }
     return;
 }
 
@@ -215,4 +261,18 @@ void battery_get_usage_telemetry(struct battery_usage_telemetry_t *out)
     float total_mah = power_profiler_get_total_mah();
     out->mah_consumed_scaled = (uint32_t)(total_mah * 100.0f);
     out->remaining_minutes = power_profiler_get_remaining_minutes();
+}
+
+void battery_set_measurement_interval_seconds(uint16_t seconds)
+{
+    measurement_interval_s = seconds;
+    if (measurement_interval_s > 0)
+    {
+        k_work_reschedule(&battery_measurement_work, K_SECONDS(measurement_interval_s));
+    }
+}
+
+uint16_t battery_get_measurement_interval_seconds(void)
+{
+    return measurement_interval_s;
 }

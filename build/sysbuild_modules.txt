@@ -1,2 +1,0 @@
-"nrf":"/Users/johnacogan67/Projects/nrf":"/Users/johnacogan67/Projects/nrf/sysbuild"
-"mcuboot":"/Users/johnacogan67/Projects/bootloader/mcuboot":"/Users/johnacogan67/Projects/bootloader/mcuboot/boot/zephyr/sysbuild"

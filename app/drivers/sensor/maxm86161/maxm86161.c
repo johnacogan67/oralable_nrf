@@ -3,6 +3,7 @@
  */
 
 #include <app/drivers/maxm86161.h>
+#include <zephyr/drivers/i2c.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(maxm86161, CONFIG_MAXM86161_LOG_LEVEL);

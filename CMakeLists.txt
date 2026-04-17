@@ -7,6 +7,15 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(tgm_firmware)
 
+#
+# Ensure generated headers exist early enough for out-of-tree driver targets.
+# Some Zephyr headers include <offsets.h>, which is generated later in the build.
+# Touching it here avoids parallel-build races while the real generator runs.
+#
+set(INCL_GENERATED_DIR ${CMAKE_BINARY_DIR}/zephyr/include/generated)
+file(MAKE_DIRECTORY ${INCL_GENERATED_DIR})
+file(TOUCH ${INCL_GENERATED_DIR}/offsets.h)
+
 target_sources(app PRIVATE
     src/main.c
     src/ble.c

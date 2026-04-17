@@ -5,6 +5,8 @@
 #ifndef TGM_SERVICE_H_
 #define TGM_SERVICE_H_
 
+#include <stdbool.h>
+
 #include <app/drivers/maxm86161.h> // For ppg_sample, but fix this later
 #include <app/drivers/lis2dtw12.h> // For acc_sample, but fix this later
 
@@ -49,6 +51,17 @@
 #define BT_UUID_TGM_STATUS_VAL \
     BT_UUID_128_ENCODE(0x3a0ff009, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
 
+/* Firmware log streaming to phone (notify-only UTF-8 chunks). */
+#define BT_UUID_TGM_FW_LOG_VAL \
+    BT_UUID_128_ENCODE(0x3a0ff00a, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
+
+/* Firmware config write (TLV commands) + state (read/notify). */
+#define BT_UUID_TGM_FW_CONFIG_VAL \
+    BT_UUID_128_ENCODE(0x3a0ff00b, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
+
+#define BT_UUID_TGM_FW_CONFIG_STATE_VAL \
+    BT_UUID_128_ENCODE(0x3a0ff00c, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
+
 #define BT_UUID_TGM_BATTERY_STATS_VAL \
     BT_UUID_128_ENCODE(0x3a0ffef2, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
 
@@ -62,6 +75,9 @@
 #define BT_UUID_TGM_READ_PPG_REG BT_UUID_DECLARE_128(BT_UUID_TGM_READ_PPG_REG_VAL)
 #define BT_UUID_TGM_WRITE_PPG_REG BT_UUID_DECLARE_128(BT_UUID_TGM_WRITE_PPG_REG_VAL)
 #define BT_UUID_TGM_STATUS BT_UUID_DECLARE_128(BT_UUID_TGM_STATUS_VAL)
+#define BT_UUID_TGM_FW_LOG BT_UUID_DECLARE_128(BT_UUID_TGM_FW_LOG_VAL)
+#define BT_UUID_TGM_FW_CONFIG BT_UUID_DECLARE_128(BT_UUID_TGM_FW_CONFIG_VAL)
+#define BT_UUID_TGM_FW_CONFIG_STATE BT_UUID_DECLARE_128(BT_UUID_TGM_FW_CONFIG_STATE_VAL)
 #define BT_UUID_TGM_BATTERY_STATS BT_UUID_DECLARE_128(BT_UUID_TGM_BATTERY_STATS_VAL)
 
 #define CONFIG_TEMP_SAMPLES_PER_FRAME 10
@@ -242,6 +258,20 @@ int tgm_service_send_status_notify(bool charging, bool worn, uint8_t state, uint
 
 /** @brief Notify BatteryStats (Voltage_mV, Percent, Remaining_Minutes) every 60s */
 int tgm_service_send_battery_stats_notify(const struct tgm_battery_stats_t *stats);
+
+/** @brief Send a single firmware log chunk (UTF-8). */
+int tgm_service_send_fw_log_notify(const void *data, uint16_t len);
+
+/** @brief Convenience printf-style firmware logging to phone (best-effort, rate-limited in caller). */
+void tgm_service_fw_log_printf(const char *fmt, ...);
+
+/* Firmware config write opcodes (mirror of firmware impl; used by iOS tooling). */
+#define TGM_FW_CFG_SET_LED_PA 0x01
+#define TGM_FW_CFG_SET_STATS_PERIOD_S 0x02
+#define TGM_FW_CFG_REQUEST_CONN_PARAM_UPDATE 0x03
+#define TGM_FW_CFG_SET_BATTERY_INTERVAL_S 0x04
+#define TGM_FW_CFG_SET_TEMP_INTERVAL_S 0x05
+#define TGM_FW_CFG_SET_STREAM_ENABLE_MASK 0x06
 
 /**
  * @}

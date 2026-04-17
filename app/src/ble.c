@@ -9,6 +9,7 @@
 
 #include "ble.h"
 #include "power_profiler.h"
+#include "tgm_service.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ble, CONFIG_APP_LOG_LEVEL);
@@ -73,6 +74,7 @@ void on_connected(struct bt_conn *conn, uint8_t err)
     if (err)
     {
         LOG_ERR("Connection error %d", err);
+        tgm_service_fw_log_printf("fw: connect error=%u", err);
         return;
     }
 
@@ -81,6 +83,7 @@ void on_connected(struct bt_conn *conn, uint8_t err)
     char addr[BT_ADDR_LE_STR_LEN];
     bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
     LOG_INF("Connected to device with address %s", addr);
+    tgm_service_fw_log_printf("fw: connected dst=%s", addr);
 
     struct bt_conn_info info;
     err = bt_conn_get_info(conn, &info);
@@ -94,6 +97,35 @@ void on_connected(struct bt_conn *conn, uint8_t err)
     uint16_t supervision_timeout = info.le.timeout * 10;  // in ms
     LOG_INF("Connection parameters: interval %.2f ms, latency %u, supervision timeout %u ms",
             connection_interval, info.le.latency, supervision_timeout);
+    tgm_service_fw_log_printf(
+        "fw: conn params interval=%.2fms lat=%u sup=%ums",
+        connection_interval, info.le.latency, supervision_timeout
+    );
+
+    /* Actively request our preferred connection parameters (in addition to advertising prefs). */
+    struct bt_le_conn_param preferred = BT_LE_CONN_PARAM_INIT(
+        CONFIG_BT_PERIPHERAL_PREF_MIN_INT,
+        CONFIG_BT_PERIPHERAL_PREF_MAX_INT,
+        CONFIG_BT_PERIPHERAL_PREF_LATENCY,
+        CONFIG_BT_PERIPHERAL_PREF_TIMEOUT
+    );
+    int perr = bt_conn_le_param_update(conn, &preferred);
+    if (perr)
+    {
+        LOG_WRN("conn param update request failed: %d", perr);
+        tgm_service_fw_log_printf("fw: conn_param_update err=%d", perr);
+    }
+    else
+    {
+        LOG_INF("conn param update request sent");
+        tgm_service_fw_log_printf(
+            "fw: conn_param_update req min=%u max=%u lat=%u sup10ms=%u",
+            CONFIG_BT_PERIPHERAL_PREF_MIN_INT,
+            CONFIG_BT_PERIPHERAL_PREF_MAX_INT,
+            CONFIG_BT_PERIPHERAL_PREF_LATENCY,
+            CONFIG_BT_PERIPHERAL_PREF_TIMEOUT
+        );
+    }
 
     request_data_len_update(conn);
 }
@@ -101,6 +133,7 @@ void on_connected(struct bt_conn *conn, uint8_t err)
 void on_disconnected(struct bt_conn *conn, uint8_t reason)
 {
     LOG_INF("Disconnected, reason %d", reason);
+    tgm_service_fw_log_printf("fw: disconnected reason=%u", reason);
     power_profiler_set_state(POWER_STATE_ADV);
 
     // Restart advertising
@@ -113,6 +146,10 @@ void on_le_param_updated(struct bt_conn *conn, uint16_t interval, uint16_t laten
     uint16_t supervision_timeout = timeout * 10;  // in ms
     LOG_INF("Connection parameters updated: interval %.2f ms, latency %u, supervision timeout %u ms",
             connection_interval, latency, supervision_timeout);
+    tgm_service_fw_log_printf(
+        "fw: conn params updated interval=%.2fms lat=%u sup=%ums",
+        connection_interval, latency, supervision_timeout
+    );
 }
 
 struct bt_conn_cb connection_callbacks = {

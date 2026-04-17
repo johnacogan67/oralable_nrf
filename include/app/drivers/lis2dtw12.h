@@ -5,7 +5,11 @@
 #ifndef LIS2DTW12_H
 #define LIS2DTW12_H
 
-#include <zephyr/drivers/i2c.h>
+#include <stdint.h>
+
+/* Forward declaration to avoid pulling heavy Zephyr headers into public API headers.
+ * The concrete type is provided by <zephyr/drivers/i2c.h> in the driver .c files. */
+struct i2c_dt_spec;
 
 struct acc_sample
 {

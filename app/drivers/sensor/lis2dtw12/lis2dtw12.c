@@ -3,6 +3,7 @@
  */
 
 #include <app/drivers/lis2dtw12.h>
+#include <zephyr/drivers/i2c.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(lis2dtw12, CONFIG_LIS2DTW12_LOG_LEVEL);

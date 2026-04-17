@@ -44,6 +44,17 @@ static const struct gpio_dt_spec chrsts_gpio = GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(z
 static struct gpio_callback chrsts_cb;
 
 static struct k_work_delayable temperature_work;
+static uint16_t temperature_interval_s = CONFIG_TEMPERATURE_MEASUREMENT_INTERVAL;
+
+/* Called from the firmware-config handler (tgm_service) to adjust cadence at runtime. */
+void temperature_set_measurement_interval_seconds(uint16_t seconds)
+{
+	temperature_interval_s = seconds;
+	if (temperature_interval_s > 0)
+	{
+		k_work_reschedule(&temperature_work, K_SECONDS(temperature_interval_s));
+	}
+}
 static struct charging_work_t
 {
 	struct k_work work;
@@ -211,7 +222,10 @@ static void temperature_work_handler(struct k_work *work)
 	if (err)
 	{
 		LOG_ERR("Failed to fetch temperature sample with error %d", err);
-		k_work_reschedule(&temperature_work, K_SECONDS(CONFIG_TEMPERATURE_MEASUREMENT_INTERVAL));
+		if (temperature_interval_s > 0)
+		{
+			k_work_reschedule(&temperature_work, K_SECONDS(temperature_interval_s));
+		}
 		return;
 	}
 
@@ -219,7 +233,10 @@ static void temperature_work_handler(struct k_work *work)
 	if (err)
 	{
 		LOG_ERR("Failed to get temperature value with error %d", err);
-		k_work_reschedule(&temperature_work, K_SECONDS(CONFIG_TEMPERATURE_MEASUREMENT_INTERVAL));
+		if (temperature_interval_s > 0)
+		{
+			k_work_reschedule(&temperature_work, K_SECONDS(temperature_interval_s));
+		}
 		return;
 	}
 
@@ -238,7 +255,10 @@ static void temperature_work_handler(struct k_work *work)
 
 	tgm_service_send_temp_notify(centitemp);
 
-	k_work_reschedule(&temperature_work, K_SECONDS(CONFIG_TEMPERATURE_MEASUREMENT_INTERVAL));
+	if (temperature_interval_s > 0)
+	{
+		k_work_reschedule(&temperature_work, K_SECONDS(temperature_interval_s));
+	}
 }
 
 int32_t battery_voltage_read(void)
