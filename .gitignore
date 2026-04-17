@@ -1,1 +1,5 @@
 .DS_Store
+
+# Local OTA copies (rebuild with west; see ota_release/README_OTA.md)
+ota_release/*.zip
+ota_release/*.bin
