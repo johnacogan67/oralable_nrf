@@ -285,17 +285,24 @@ int main(void)
 
 	printk("TGM Application %s\n", APP_VERSION_STRING);
 
-	/* CRITICAL: Battery power latch MUST be first - before ANY returns */
-	gpio_pin_configure(DEVICE_DT_GET(DT_NODELABEL(gpio0)), 10, GPIO_OUTPUT);
-	gpio_pin_set(DEVICE_DT_GET(DT_NODELABEL(gpio0)), 10, 1);
-	printk("*** BATTERY POWER ENABLED ON P0.10 ***\n");
-
 	// Initialize the gpio port
 	if (!device_is_ready(gpio))
 	{
 		LOG_ERR("GPIO is not ready");
 		return -1;
 	}
+
+	/* CRITICAL: battery boost latch (BATEN / P0.10) must be driven HIGH
+	 * atomically once GPIO is confirmed ready. If this configure step fails,
+	 * the pin can float and battery-only operation may die after a delay.
+	 */
+	err = gpio_pin_configure(gpio, 10, GPIO_OUTPUT_HIGH);
+	if (err)
+	{
+		LOG_ERR("Failed to latch BATEN (P0.10), err=%d", err);
+		return err;
+	}
+	printk("*** BATTERY POWER ENABLED ON P0.10 ***\n");
 
 	// Initialize the sens_enable pin as output
 	err = gpio_pin_configure(gpio, SENS_ENABLE_PIN, GPIO_OUTPUT_HIGH);
@@ -400,6 +407,8 @@ int main(void)
     // Sensors run autonomously via interrupts and send data via BLE
     // Main loop just needs to stay alive
     while (1) {
+        /* Defensive re-assert of BATEN latch for battery-only robustness. */
+        (void)gpio_pin_set(gpio, 10, 1);
         // Sleep to save power - wake every 1 second to maintain BLE connection
         k_sleep(K_SECONDS(1));
     }
