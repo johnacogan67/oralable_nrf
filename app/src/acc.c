@@ -19,7 +19,8 @@ static struct k_work read_acc_data_work;
 #include <app/drivers/lis2dtw12.h>
 
 #define LIS2DTW12_NODE DT_NODELABEL(lis2dtw12)
-static struct gpio_dt_spec acc_int = GPIO_DT_SPEC_GET(LIS2DTW12_NODE, int_gpios);
+#define ACC_INT_PIN 6
+static const struct device *acc_int_port = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 
 static struct i2c_dt_spec i2c = I2C_DT_SPEC_GET(LIS2DTW12_NODE);
 #else
@@ -37,7 +38,9 @@ static struct i2c_dt_spec i2c = I2C_DT_SPEC_GET(LIS2DTW12_NODE);
  */
 static void acc_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-    if (pins & BIT(acc_int.pin))
+    ARG_UNUSED(dev);
+    ARG_UNUSED(cb);
+    if (pins & BIT(ACC_INT_PIN))
     {
         // Read the accelerometer data outside of the ISR
         k_work_submit(&read_acc_data_work);
@@ -82,14 +85,14 @@ int acc_init(void)
     }
 
     // Initialize the GPIO port
-    if (!gpio_is_ready_dt(&acc_int))
+    if (!device_is_ready(acc_int_port))
     {
         LOG_ERR("GPIO device not ready during initialization of accelerometer sensor");
         return -ENODEV;
     }
 
     // Intialize the int pin as input
-    err = gpio_pin_configure_dt(&acc_int, GPIO_INPUT);
+    err = gpio_pin_configure(acc_int_port, ACC_INT_PIN, GPIO_INPUT);
     if (err)
     {
         LOG_ERR("Failed to configure accelerometer sensor int pin as input");
@@ -97,8 +100,8 @@ int acc_init(void)
     }
 
     // Initialize the interrupt callback
-    gpio_init_callback(&acc_int_cb, acc_int_handler, BIT(acc_int.pin));
-    err = gpio_add_callback(acc_int.port, &acc_int_cb);
+    gpio_init_callback(&acc_int_cb, acc_int_handler, BIT(ACC_INT_PIN));
+    err = gpio_add_callback(acc_int_port, &acc_int_cb);
     if (err)
     {
         LOG_ERR("Failed to add callback to accelerometer sensor int pin");
@@ -114,7 +117,7 @@ int acc_init(void)
 int acc_start(void)
 {
     // Enable the interrupt
-    int err = gpio_pin_interrupt_configure_dt(&acc_int, GPIO_INT_EDGE_TO_ACTIVE);
+    int err = gpio_pin_interrupt_configure(acc_int_port, ACC_INT_PIN, GPIO_INT_EDGE_TO_ACTIVE);
     if (err)
     {
         LOG_ERR("Failed to configure accelerometer sensor int pin interrupt");
@@ -143,7 +146,7 @@ int acc_stop(void)
     }
 
     // Disable the interrupt
-    err = gpio_pin_interrupt_configure_dt(&acc_int, GPIO_INT_DISABLE);
+    err = gpio_pin_interrupt_configure(acc_int_port, ACC_INT_PIN, GPIO_INT_DISABLE);
     if (err)
     {
         LOG_ERR("Failed to disable accelerometer sensor int pin interrupt");

@@ -31,7 +31,8 @@ static struct ppg_reg_work_t ppg_reg_work;
 #include <app/drivers/maxm86161.h>
 
 #define MAXM86161_NODE DT_NODELABEL(maxm86161)
-static struct gpio_dt_spec ppg_int = GPIO_DT_SPEC_GET(MAXM86161_NODE, int_gpios);
+#define PPG_INT_PIN 20
+static const struct device *ppg_int_port = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 
 static struct i2c_dt_spec i2c = I2C_DT_SPEC_GET(MAXM86161_NODE);
 #else
@@ -49,7 +50,9 @@ static struct i2c_dt_spec i2c = I2C_DT_SPEC_GET(MAXM86161_NODE);
  */
 static void ppg_int_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-    if (pins & BIT(ppg_int.pin))
+    ARG_UNUSED(dev);
+    ARG_UNUSED(cb);
+    if (pins & BIT(PPG_INT_PIN))
     {
         // Read the PPG data outside of the ISR
         k_work_submit(&read_ppg_data_work);
@@ -92,14 +95,14 @@ int ppg_init(void)
     }
 
     // Initialize the GPIO port
-    if (!gpio_is_ready_dt(&ppg_int))
+    if (!device_is_ready(ppg_int_port))
     {
         LOG_ERR("GPIO device not ready during initialization of PPG sensor");
         return -ENODEV;
     }
 
     // Intialize the int pin as input
-    int err = gpio_pin_configure_dt(&ppg_int, GPIO_INPUT);
+    int err = gpio_pin_configure(ppg_int_port, PPG_INT_PIN, GPIO_INPUT | GPIO_PULL_UP);
     if (err)
     {
         LOG_ERR("Failed to configure PPG sensor int pin as input");
@@ -107,8 +110,8 @@ int ppg_init(void)
     }
 
     // Initialize the interrupt callback
-    gpio_init_callback(&ppg_int_cb, ppg_int_handler, BIT(ppg_int.pin));
-    err = gpio_add_callback(ppg_int.port, &ppg_int_cb);
+    gpio_init_callback(&ppg_int_cb, ppg_int_handler, BIT(PPG_INT_PIN));
+    err = gpio_add_callback(ppg_int_port, &ppg_int_cb);
     if (err)
     {
         LOG_ERR("Failed to add callback to PPG sensor int pin");
@@ -125,7 +128,7 @@ int ppg_init(void)
 int ppg_start(void)
 {
     // Enable the interrupt
-    int err = gpio_pin_interrupt_configure_dt(&ppg_int, GPIO_INT_EDGE_TO_ACTIVE);
+    int err = gpio_pin_interrupt_configure(ppg_int_port, PPG_INT_PIN, GPIO_INT_EDGE_TO_ACTIVE);
     if (err)
     {
         LOG_ERR("Failed to configure PPG sensor int pin interrupt");
@@ -154,7 +157,7 @@ int ppg_stop(void)
     }
 
     // Disable the interrupt
-    err = gpio_pin_interrupt_configure_dt(&ppg_int, GPIO_INT_DISABLE);
+    err = gpio_pin_interrupt_configure(ppg_int_port, PPG_INT_PIN, GPIO_INT_DISABLE);
     if (err)
     {
         LOG_ERR("Failed to disable PPG sensor int pin interrupt");
