@@ -11,6 +11,7 @@
 #include <app_version.h>
 #include "tgm_service.h"
 #include "ppg.h"
+#include "acc.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(tgm_service, CONFIG_APP_LOG_LEVEL);
@@ -39,12 +40,20 @@ static void tgm_service_ccc_ppg_data_cfg_changed(const struct bt_gatt_attr *attr
 {
     LOG_INF("Enabled notifications for ppg data");
     notify_ppg_data = (value == BT_GATT_CCC_NOTIFY);
+    if (notify_ppg_data)
+    {
+        (void)ppg_start();
+    }
 }
 
 static void tgm_service_ccc_acc_data_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
     LOG_INF("Enabled notifications for acc data");
     notify_acc_data = (value == BT_GATT_CCC_NOTIFY);
+    if (notify_acc_data)
+    {
+        (void)acc_start();
+    }
 }
 
 static void tgm_service_ccc_temp_data_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
@@ -57,6 +66,11 @@ static void tgm_service_ccc_bat_cfg_changed(const struct bt_gatt_attr *attr, uin
 {
     LOG_INF("Enabled notifications for battery data");
     notify_battery = (value == BT_GATT_CCC_NOTIFY);
+    if (notify_battery && tgm_service_cb && tgm_service_cb->bat_cb)
+    {
+        int32_t now_mv = tgm_service_cb->bat_cb();
+        (void)tgm_service_send_battery_notify(now_mv);
+    }
 }
 
 static void tgm_service_ccc_read_ppg_reg_data_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
