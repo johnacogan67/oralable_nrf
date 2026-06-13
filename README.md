@@ -1,6 +1,13 @@
-# tgm_firmware
+# tgm_firmware / Oralable nRF
 
-Firmware for the TGM
+Firmware for the Oralable MAM (TGM service, pcb00003). **Docs:** [docs/README.md](docs/README.md) · **Strategy:** [docs/ORALABLE_MARKET_LANDSCAPE.md](docs/ORALABLE_MARKET_LANDSCAPE.md).
+
+| Item | Value |
+|------|--------|
+| Board | `pcb00003/nrf52832` |
+| FW version | **1.0.36-nrfconnect** (`app/VERSION`) |
+| Flash + RTT | `./scripts/flash_and_rtt.sh` → `build_pcb00003/merged.hex` |
+| OTA | `./scripts/update_firmware.sh --ota` or [OTA_DEVICE_MANAGER.md](docs/OTA_DEVICE_MANAGER.md) |
 
 # nRF Connect SDK example application
 
