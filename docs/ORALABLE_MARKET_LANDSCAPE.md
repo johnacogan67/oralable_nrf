@@ -14,7 +14,7 @@ Comprehensive positioning for Oralable MAM across hardware, mobile software, dat
 2. [The core insight: not a ring](#2-the-core-insight-not-a-ring)
 3. [Hardware: now vs roadmap](#3-hardware-now-vs-roadmap)
 4. [EMG vs PPG: second axis](#4-emg-vs-ppg-second-axis)
-5. [Mobile apps & data collection](#5-mobile-apps--data-collection)
+5. [Mobile apps & data collection](#5-mobile-apps--data-collection) — UX flows: `oralable_swift/docs/MOBILE_APP_FLOWS.md`
 6. [Data architecture: wellness black box vs open pipeline](#6-data-architecture-wellness-black-box-vs-open-pipeline)
 7. [Competitive map](#7-competitive-map)
 8. [Regulatory spectrum: wellness → medical device](#8-regulatory-spectrum-wellness--medical-device)
@@ -87,7 +87,7 @@ Oralable sits in a **niche orthogonal to rings**: same broad sensor classes (PPG
 | Battery | CG-320B 15 mAh LiPo | Small cell; multi-day life TBD; 8 h clinical night is design target |
 | BLE | Custom **TGM GATT** service (`3A0FF000`) | Raw 50 Hz PPG (R/G/IR) + ACC + temp + status |
 | OTA | **MCUboot + mcumgr SMP** | Nordic Device Manager on iPhone; open NCS stack |
-| FW version | **1.0.36** (nRF Connect–aligned worn gating) | iOS enforces minimum via `FirmwareGate` |
+| FW version | **1.0.37-nrfconnect** (diagnostics GATT `00A`–`00C`; iOS minimum **1.0.36** via `FirmwareGate`) |
 
 **BLE characteristics (TGM service):**
 

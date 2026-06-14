@@ -13,6 +13,7 @@
 #include "ppg.h"
 #include "acc.h"
 #include "battery.h"
+#include "battery_led_indicator.h"
 #include "tgm_service.h"
 
 #include <zephyr/logging/log.h>
@@ -24,6 +25,9 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 // Device temperature thresholds, with hysteresis
 #define DEVICE_WORN_TEMPERATURE_THRESHOLD 2550
 #define DEVICE_NOT_WORN_TEMPERATURE_THRESHOLD 2450
+
+/** Dim green-only PPG during off-body connect probe (see CONFIG_TGM_CONNECT_PROBE_DURATION_S). */
+#define CONNECT_PROBE_GREEN_PA 5
 
 enum device_state_t
 {
@@ -43,6 +47,7 @@ static const struct gpio_dt_spec chrsts_gpio = GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(z
 static struct gpio_callback chrsts_cb;
 
 static struct k_work_delayable temperature_work;
+static uint16_t temp_measurement_interval_s = CONFIG_TEMPERATURE_MEASUREMENT_INTERVAL;
 static struct charging_work_t
 {
 	struct k_work work;
@@ -51,78 +56,61 @@ static struct charging_work_t
 
 static enum device_state_t device_state = DEVICE_STATE_INIT;
 
+static void apply_battery_leds(void)
+{
+	uint8_t battery_pct = battery_voltage_to_percent(battery_get_last_measurement());
+	battery_led_indicator_apply(charging, worn, battery_pct);
+}
+
+static void publish_status(void)
+{
+	uint8_t battery_pct = battery_voltage_to_percent(battery_get_last_measurement());
+	tgm_service_send_status_notify(charging, worn, device_state, battery_pct);
+}
+
 static int update_state(bool charging_new_state, bool worn_new_state)
 {
-	int err;
-
-	if ((device_state == DEVICE_STATE_INIT) && !charging && !worn)
-	{
-		// Initialize the green LED to a low value to indicate that the device is still working
-		err = ppg_set_led_pa(PPG_LED_GREEN, 5);
-		if (err)
-		{
-			LOG_ERR("Failed to set PPG LED PA for LED %d", PPG_LED_GREEN);
-			return err;
-		}
-
-		device_state = DEVICE_STATE_NOT_WORN_NOT_CHARGING;
-	}
-
 	if (charging_new_state == charging && worn_new_state == worn)
 	{
-		// No change, do nothing
 		return 0;
 	}
 
 	if (charging_new_state != charging)
 	{
-		// Charging state changed
 		charging = charging_new_state;
-		// Check if charging started or stopped
+
 		if (charging)
 		{
-			// Enable the green LED
-			err = ppg_set_led_pa(PPG_LED_GREEN, 32);
-			if (err)
-			{
-				LOG_ERR("Failed to set PPG LED PA for LED %d", PPG_LED_GREEN);
-				return err;
-			}
-
-			// Charging started
-			device_state = DEVICE_STATE_NOT_WORN_CHARGING;
+			device_state = worn ? DEVICE_STATE_WORN : DEVICE_STATE_NOT_WORN_CHARGING;
+		}
+		else if (worn)
+		{
+			device_state = DEVICE_STATE_WORN;
 		}
 		else
 		{
-			// Disable the green LED
-			err = ppg_set_led_pa(PPG_LED_GREEN, 0);
-			if (err)
-			{
-				LOG_ERR("Failed to disable PPG LED PA for LED %d", PPG_LED_GREEN);
-				return err;
-			}
-
-			if (worn)
-			{
-				// Charging stopped while worn	
-				device_state = DEVICE_STATE_WORN;
-			}
-			else
-			{
-				// Charging stopped while not worn
-				device_state = DEVICE_STATE_NOT_WORN_NOT_CHARGING;
-			}
+			device_state = DEVICE_STATE_NOT_WORN_NOT_CHARGING;
 		}
 	}
 
 	if (worn_new_state != worn)
 	{
-		// Worn state changed
 		worn = worn_new_state;
-		// Check if worn started or stopped
+
 		if (worn)
 		{
-			// Enable the Red and IR LEDs
+			int err;
+
+			device_state = DEVICE_STATE_WORN;
+			apply_battery_leds();
+
+			err = ppg_set_led_pa(PPG_LED_GREEN, 0);
+			if (err)
+			{
+				LOG_ERR("Failed to disable green LED for worn mode");
+				return err;
+			}
+
 			err = ppg_set_led_pa(PPG_LED_RED, 32);
 			if (err)
 			{
@@ -136,13 +124,11 @@ static int update_state(bool charging_new_state, bool worn_new_state)
 				LOG_ERR("Failed to set PPG LED PA for LED %d", PPG_LED_IR);
 				return err;
 			}
-
-			// Worn started
-			device_state = DEVICE_STATE_WORN;
 		}
 		else
 		{
-			// Disable the Red and IR LEDs
+			int err;
+
 			err = ppg_set_led_pa(PPG_LED_RED, 0);
 			if (err)
 			{
@@ -156,35 +142,116 @@ static int update_state(bool charging_new_state, bool worn_new_state)
 				LOG_ERR("Failed to disable PPG LED PA for LED %d", PPG_LED_IR);
 				return err;
 			}
-			
-			if (charging)
-			{
-				// Worn stopped while charging
-				device_state = DEVICE_STATE_NOT_WORN_CHARGING;
-			}
-			else
-			{
-				// Worn stopped while not charging
-				device_state = DEVICE_STATE_NOT_WORN_NOT_CHARGING;
 
-				// Set the green LED to a low value to indicate that the device is still working
-				err = ppg_set_led_pa(PPG_LED_GREEN, 5);
-				if (err)
-				{
-					LOG_ERR("Failed to disable PPG LED PA for LED %d", PPG_LED_GREEN);
-					return err;
-				}
-			}
+			device_state = charging ? DEVICE_STATE_NOT_WORN_CHARGING
+						: DEVICE_STATE_NOT_WORN_NOT_CHARGING;
+			apply_battery_leds();
+		}
+	}
+	else if (!worn)
+	{
+		apply_battery_leds();
+	}
+
+	if (device_state == DEVICE_STATE_INIT)
+	{
+		device_state = charging ? DEVICE_STATE_NOT_WORN_CHARGING
+					: DEVICE_STATE_NOT_WORN_NOT_CHARGING;
+		apply_battery_leds();
+	}
+
+	LOG_INF("Device state changed to %d (charging=%d worn=%d)", device_state, charging, worn);
+
+	tgm_service_set_device_worn(worn);
+	publish_status();
+
+	return 0;
+}
+
+static void battery_measurement_ready(int32_t battery_mv)
+{
+	ARG_UNUSED(battery_mv);
+
+	if (!worn)
+	{
+		apply_battery_leds();
+	}
+
+	publish_status();
+}
+
+static void ppg_apply_off_body_leds(void)
+{
+	(void)ppg_set_led_pa(PPG_LED_RED, 0);
+	(void)ppg_set_led_pa(PPG_LED_IR, 0);
+	(void)ppg_set_led_pa(PPG_LED_GREEN, 0);
+}
+
+static void connect_probe_begin_cb(void)
+{
+	if (worn)
+	{
+		return;
+	}
+
+	LOG_INF("Connect probe: dim green PPG LED (PA=%d)", CONNECT_PROBE_GREEN_PA);
+	(void)ppg_set_led_pa(PPG_LED_RED, 0);
+	(void)ppg_set_led_pa(PPG_LED_IR, 0);
+	(void)ppg_set_led_pa(PPG_LED_GREEN, CONNECT_PROBE_GREEN_PA);
+}
+
+static void connect_probe_end_cb(void)
+{
+	if (worn)
+	{
+		return;
+	}
+
+	LOG_INF("Connect probe: PPG LEDs off");
+	ppg_apply_off_body_leds();
+	apply_battery_leds();
+}
+
+static void diagnostic_snapshot_cb(void)
+{
+	publish_status();
+}
+
+static void ble_link_connected_cb(void)
+{
+	int err;
+	struct sensor_value temp_value;
+	int16_t centitemp = 0;
+
+	err = sensor_sample_fetch(temp_sensor);
+	if (!err)
+	{
+		err = sensor_channel_get(temp_sensor, SENSOR_CHAN_DIE_TEMP, &temp_value);
+		if (!err)
+		{
+			centitemp = temp_value.val1 * 100 + temp_value.val2 / 10000;
 		}
 	}
 
-	LOG_INF("Device state changed to %d", device_state);
+	LOG_INF("BLE link up: charging=%d worn=%d state=%d bat=%d%% die=%d.%02d C probe=%ds",
+		charging, worn, device_state,
+		battery_voltage_to_percent(battery_get_last_measurement()),
+		centitemp / 100, centitemp % 100,
+		CONFIG_TGM_CONNECT_PROBE_DURATION_S);
 
-	// Send status update to iOS app
-	uint8_t battery_pct = battery_voltage_to_percent(battery_get_last_measurement());
-	tgm_service_send_status_notify(charging, worn, device_state, battery_pct);
+	publish_status();
+}
 
-	return 0;
+static void ble_link_disconnected_cb(void)
+{
+	if (!worn)
+	{
+		ppg_apply_off_body_leds();
+		apply_battery_leds();
+	}
+
+	LOG_INF("BLE link down: charging=%d worn=%d state=%d",
+		charging, worn, device_state);
 }
 
 static void charging_work_handler(struct k_work *work)
@@ -204,7 +271,7 @@ static void temperature_work_handler(struct k_work *work)
 	if (err)
 	{
 		LOG_ERR("Failed to fetch temperature sample with error %d", err);
-		k_work_reschedule(&temperature_work, K_SECONDS(CONFIG_TEMPERATURE_MEASUREMENT_INTERVAL));
+		k_work_reschedule(&temperature_work, K_SECONDS(temp_measurement_interval_s));
 		return;
 	}
 
@@ -212,7 +279,7 @@ static void temperature_work_handler(struct k_work *work)
 	if (err)
 	{
 		LOG_ERR("Failed to get temperature value with error %d", err);
-		k_work_reschedule(&temperature_work, K_SECONDS(CONFIG_TEMPERATURE_MEASUREMENT_INTERVAL));
+		k_work_reschedule(&temperature_work, K_SECONDS(temp_measurement_interval_s));
 		return;
 	}
 
@@ -229,9 +296,22 @@ static void temperature_work_handler(struct k_work *work)
 		update_state(charging, false);
 	}
 
-	tgm_service_send_temp_notify(centitemp);
+	/* Off-body: BLE-notify temp during worn or connect probe window. */
+	if (worn || tgm_service_connect_probe_active())
+	{
+		tgm_service_send_temp_notify(centitemp);
+	}
 
-	k_work_reschedule(&temperature_work, K_SECONDS(CONFIG_TEMPERATURE_MEASUREMENT_INTERVAL));
+	k_work_reschedule(&temperature_work, K_SECONDS(temp_measurement_interval_s));
+}
+
+void temperature_set_measurement_interval_seconds(uint16_t seconds)
+{
+	temp_measurement_interval_s = (seconds == 0u) ? 1u : seconds;
+	if (temperature_work.work.handler != NULL)
+	{
+		k_work_reschedule(&temperature_work, K_SECONDS(temp_measurement_interval_s));
+	}
 }
 
 int32_t battery_voltage_read(void)
@@ -277,6 +357,11 @@ static void chrsts_callback(const struct device *dev, struct gpio_callback *cb, 
 
 struct tgm_service_cb tgm_service_callbacks = {
 	.bat_cb = battery_voltage_read,
+	.link_connected_cb = ble_link_connected_cb,
+	.link_disconnected_cb = ble_link_disconnected_cb,
+	.probe_begin_cb = connect_probe_begin_cb,
+	.probe_end_cb = connect_probe_end_cb,
+	.diagnostic_snapshot_cb = diagnostic_snapshot_cb,
 };
 
 int main(void)
@@ -315,13 +400,14 @@ int main(void)
 	}
 
 	tgm_service_init(&tgm_service_callbacks);
+	battery_led_indicator_init();
 
 	// Initialize the temperature monitoring
 	k_work_init_delayable(&temperature_work, temperature_work_handler);
 
 	ble_adv_start();
 
-	err = battery_init(NULL);
+	err = battery_init(battery_measurement_ready);
 	if (err)
 	{
 		LOG_ERR("battery_init() returned %d", err);
@@ -376,8 +462,13 @@ int main(void)
 
 	k_work_init(&charging_work.work, charging_work_handler);
 
+	charging = (gpio_pin_get_dt(&chrsts_gpio) != 0);
+	LOG_INF("Initial charging state: %s", charging ? "on dock" : "off dock");
+
 	// Track the charging state
-	err = gpio_pin_interrupt_configure(gpio, chrsts_gpio.pin, GPIO_INT_LEVEL_ACTIVE);
+	err = gpio_pin_interrupt_configure(gpio, chrsts_gpio.pin,
+					   charging ? GPIO_INT_LEVEL_INACTIVE
+						    : GPIO_INT_LEVEL_ACTIVE);
 	if (err)
 	{
 		LOG_ERR("Failed to configure chrsts pin interrupt");
@@ -396,6 +487,10 @@ int main(void)
 	{
 		LOG_ERR("Failed to start the accelerometer sensor with error %d", err);
 	}
+
+	device_state = charging ? DEVICE_STATE_NOT_WORN_CHARGING
+				: DEVICE_STATE_NOT_WORN_NOT_CHARGING;
+	apply_battery_leds();
 
     // Start the temperature monitoring
     k_work_reschedule(&temperature_work, K_NO_WAIT);

@@ -38,7 +38,7 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 
 | Item | Value |
 |------|--------|
-| Firmware | **1.0.36-nrfconnect** (`app/VERSION`) |
+| Firmware | **1.0.37-nrfconnect** (`app/VERSION`) |
 | iOS minimum | **1.0.36** (`FirmwareGate`) |
 | Board | `pcb00003/nrf52832` |
 | First SWD flash | `build_pcb00003/merged.hex` |

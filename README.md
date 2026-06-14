@@ -5,7 +5,7 @@ Firmware for the Oralable MAM (TGM service, pcb00003). **Docs:** [docs/README.md
 | Item | Value |
 |------|--------|
 | Board | `pcb00003/nrf52832` |
-| FW version | **1.0.36-nrfconnect** (`app/VERSION`) |
+| FW version | **1.0.37-nrfconnect** (`app/VERSION`) |
 | Flash + RTT | `./scripts/flash_and_rtt.sh` → `build_pcb00003/merged.hex` |
 | OTA | `./scripts/update_firmware.sh --ota` or [OTA_DEVICE_MANAGER.md](docs/OTA_DEVICE_MANAGER.md) |
 

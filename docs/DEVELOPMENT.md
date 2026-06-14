@@ -38,14 +38,16 @@ Keeps `oralable_nrf` and `oralable_swift` synchronized. **Doc index:** [README.m
 
 ---
 
-## Manual smoke checklist (TGM / firmware ≥ 1.0.36)
+## Manual smoke checklist (TGM / firmware ≥ 1.0.37)
 
 - [ ] Charger + J-Link: boots and advertises as **Oralable**.
 - [ ] Battery-only: remains alive ≥ 180s (optional soak).
 - [ ] **Device Manager** or **nRF Connect**: TGM `3A0FF000` + SMP services discovered.
-- [ ] Read firmware `3A0FF006` → **≥ 1.0.36** (iOS `FirmwareGate` aligned).
-- [ ] **Off-body:** no PPG/ACC value updates (worn gate) — expected.
+- [ ] Read firmware `3A0FF006` → **1.0.37-nrfconnect** (iOS `FirmwareGate` minimum remains **1.0.36**).
+- [ ] GATT includes **`3A0FF00A`** (fw log), **`3A0FF00B`** (config write), **`3A0FF00C`** (config state).
+- [ ] **Off-body:** PPG/ACC during **10 s connect probe** then gated; status/battery still notify.
 - [ ] **On-body cheek:** PPG/ACC notifies after CCC enable; export nRF CSV if comparing to iOS.
+- [ ] iOS: Settings → Developer → **Dump firmware diagnostics** → export nRF CSV with `[FW]` lines.
 - [ ] iOS app: connect → auto-record; optional CloudKit share smoke.
 - [ ] OTA: `dfu_application.zip` after one-time `merged.hex` flash.
 
@@ -92,15 +94,26 @@ Four-byte notify (also updated on charge/worn/battery changes):
 | 2 | `device_state` — 0 not worn / not charging, 1 not worn / charging, 2 worn |
 | 3 | `battery_pct` — 0–100 |
 
-**nRF Connect:** read or notify `3A0FF009` after connect. Example: `00 00 02 18` → off charger, not worn, **24%**.
+**Firmware log / config (≥ 1.0.37):**
 
-**Firmware version:** read `3A0FF006` (string, e.g. `1.0.36`).
+| UUID | Role |
+|------|------|
+| `3A0FF00A` | Notify — UTF-8 firmware log lines (`fw: snap …`, `fw: stats …`) |
+| `3A0FF00B` | Write — TLV config opcodes (see iOS `FirmwareConfigOpcode`) |
+| `3A0FF00C` | Read/notify — 8-byte applied config state |
+
+**iOS:** Settings → Developer → **Dump firmware diagnostics** (snapshot + export nRF CSV). Connect auto-enables `00A` when present.
+
+**Firmware version:** read `3A0FF006` (string, e.g. `1.0.37-nrfconnect`).
 
 ### Worn gating & streaming
 
-- **Off-body (`worn=0`):** PPG/ACC notifies are **suppressed** even if CCC is enabled — expected.
-- **On-body cheek:** warm skin + coupling → `worn=1` → PPG/ACC streams after CCC enable.
-- **Bench trap:** holding the clip warms the MCU → can falsely set `worn=1` during nRF Connect tests.
+- **Off-body (`worn=0`):** PPG/ACC/temp notifies are **suppressed** after the connect probe window ends, even if CCC stays enabled.
+- **Connect probe (default 10 s):** On BLE connect, firmware streams PPG/ACC/temp for `CONFIG_TGM_CONNECT_PROBE_DURATION_S` seconds even when `worn=0`, using **dim green-only** PPG LEDs so bench/charger diagnostics get real samples without locking worn from die heat. Set duration **0** in Kconfig to disable.
+- **On-body cheek:** warm skin + coupling → `worn=1` → PPG/ACC streams after CCC enable (full red/IR LED profile).
+- **Bench trap:** holding the clip or full-power PPG on the dock warms the MCU → can falsely set `worn=1` during long nRF Connect tests. Disconnect BLE to let the die cool below 24.5°C.
+
+**RTT connect line (example):** `BLE link up: charging=1 worn=0 state=1 bat=54% die=22.50 C probe=10s`
 
 ### Low-voltage protection
 
@@ -124,6 +137,8 @@ If `CONFIG_BATTERY_CRITICAL_LOW_SHUTDOWN=y` (see root `prj.conf`), firmware **co
 | Charge detect | `app/src/main.c` (`chrsts` GPIO) |
 | Worn / state | `app/src/main.c` (`temperature_work_handler`) |
 | Status notify | `app/src/tgm_service.c` (`tgm_service_send_status_notify`) |
+| FW log / config GATT | `app/src/tgm_service.c` (`3A0FF00A`–`00C`) |
+| Connect probe | `app/src/tgm_service.c`, `CONFIG_TGM_CONNECT_PROBE_DURATION_S` |
 
 ---
 
@@ -134,7 +149,8 @@ Record known-good pairs after `tandem_validate.sh` + manual smoke.
 | Date (UTC) | Firmware | FW commit | iOS commit | FW version | Validation | Manual smoke | Result | Notes |
 |---|---|---|---|---|---|---|---|---|
 | 2026-05-28 | oralable_nrf | c617f81 | 547c2b7 | (pre-1.0.36 gate) | tandem_validate.sh | Build checks | PASS | Baseline battery+BLE |
-| 2026-06-07 | oralable_nrf | (workspace) | (workspace) | **1.0.36-nrfconnect** | tandem + nRF Connect CSV | TGM GATT, worn gate | **CURRENT** | nRF-aligned CCC order |
+| 2026-06-07 | oralable_nrf | (workspace) | (workspace) | **1.0.36-nrfconnect** | tandem + nRF Connect CSV | TGM GATT, worn gate | PASS | nRF-aligned CCC order |
+| 2026-06-07 | oralable_nrf | (this commit) | (paired iOS) | **1.0.37-nrfconnect** | build + flash smoke | 00A/B/C diagnostics, connect probe | **CURRENT** | iOS Developer dump + fw log |
 
 ### How to add a row
 
@@ -143,4 +159,4 @@ cd ~/work/oralable_nrf && git rev-parse --short HEAD
 cd ~/work/oralable_swift && git rev-parse --short HEAD
 ```
 
-*Last updated: June 2026 (LED/battery section)*
+*Last updated: June 2026 (1.0.37 diagnostics GATT, connect probe)*

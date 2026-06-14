@@ -49,6 +49,15 @@
 #define BT_UUID_TGM_STATUS_VAL \
     BT_UUID_128_ENCODE(0x3a0ff009, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
 
+#define BT_UUID_TGM_FW_LOG_VAL \
+    BT_UUID_128_ENCODE(0x3a0ff00a, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
+
+#define BT_UUID_TGM_FW_CONFIG_VAL \
+    BT_UUID_128_ENCODE(0x3a0ff00b, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
+
+#define BT_UUID_TGM_FW_CONFIG_STATE_VAL \
+    BT_UUID_128_ENCODE(0x3a0ff00c, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
+
 #define BT_UUID_TGM BT_UUID_DECLARE_128(BT_UUID_TGM_VAL)
 #define BT_UUID_TGM_PPG BT_UUID_DECLARE_128(BT_UUID_TGM_PPG_VAL)
 #define BT_UUID_TGM_ACC BT_UUID_DECLARE_128(BT_UUID_TGM_ACC_VAL)
@@ -59,8 +68,24 @@
 #define BT_UUID_TGM_READ_PPG_REG BT_UUID_DECLARE_128(BT_UUID_TGM_READ_PPG_REG_VAL)
 #define BT_UUID_TGM_WRITE_PPG_REG BT_UUID_DECLARE_128(BT_UUID_TGM_WRITE_PPG_REG_VAL)
 #define BT_UUID_TGM_STATUS BT_UUID_DECLARE_128(BT_UUID_TGM_STATUS_VAL)
+#define BT_UUID_TGM_FW_LOG BT_UUID_DECLARE_128(BT_UUID_TGM_FW_LOG_VAL)
+#define BT_UUID_TGM_FW_CONFIG BT_UUID_DECLARE_128(BT_UUID_TGM_FW_CONFIG_VAL)
+#define BT_UUID_TGM_FW_CONFIG_STATE BT_UUID_DECLARE_128(BT_UUID_TGM_FW_CONFIG_STATE_VAL)
 
 #define CONFIG_TEMP_SAMPLES_PER_FRAME 10
+
+/** Readable firmware config state (matches iOS `3A0FF00C`). */
+struct tgm_fw_config_state_t
+{
+    uint8_t version;
+    uint8_t led_green_pa;
+    uint8_t led_ir_pa;
+    uint8_t led_red_pa;
+    uint8_t stream_stats_period_s;
+    uint8_t battery_interval_s;
+    uint8_t temp_interval_s;
+    uint8_t stream_enable_mask;
+};
 
 /** @brief PPG Data Struct used by the TGM service to inform the client of new PPG data. */
 struct tgm_service_ppg_data_t
@@ -114,6 +139,9 @@ typedef void (*tgm_service_temp_cb_t)(struct tgm_service_temp_data_t *temp_data)
 /** @brief Callback type for when the battery value is pulled. */
 typedef int32_t (*tgm_service_bat_cb_t)(void);
 
+/** @brief Optional link / bench-probe hooks (logging, LED profile). */
+typedef void (*tgm_service_void_cb_t)(void);
+
 /** @brief Callback struct used by the TGM Service. */
 struct tgm_service_cb
 {
@@ -125,6 +153,16 @@ struct tgm_service_cb
     tgm_service_temp_cb_t temp_cb;
     /** Battery value callback. */
     tgm_service_bat_cb_t bat_cb;
+    /** Called when BLE central connects (after tgm_service_on_connected). */
+    tgm_service_void_cb_t link_connected_cb;
+    /** Called when BLE link drops (before sensor suspend). */
+    tgm_service_void_cb_t link_disconnected_cb;
+    /** Off-body connect probe started — apply dim PPG LEDs. */
+    tgm_service_void_cb_t probe_begin_cb;
+    /** Connect probe ended — restore off-body LED policy. */
+    tgm_service_void_cb_t probe_end_cb;
+    /** Refresh status notify + die temp after diagnostic snapshot command. */
+    tgm_service_void_cb_t diagnostic_snapshot_cb;
 };
 
 /** @brief Initialize the TGM Service.
@@ -140,6 +178,28 @@ struct tgm_service_cb
  *           Otherwise, a (negative) error code is returned.
  */
 int tgm_service_init(struct tgm_service_cb *callbacks);
+
+/** @brief Start link keepalive when a central connects. */
+void tgm_service_on_connected(void);
+
+/** @brief Clear notification state when the BLE link drops. */
+void tgm_service_on_disconnect(void);
+
+/** @brief Apply worn/off-body policy for sensor streaming and BLE notify volume.
+ *
+ * Off-body: stop PPG/ACC hardware and suppress high-rate sensor notifies.
+ * On-body: resume streams for characteristics that still have notify enabled.
+ */
+void tgm_service_set_device_worn(bool worn);
+
+/** @brief True during the post-connect diagnostic probe window (off-body streaming). */
+bool tgm_service_connect_probe_active(void);
+
+/** @brief Push status/config snapshot to fw-log + status notify (opcode 0x07). */
+void tgm_service_emit_diagnostic_snapshot(void);
+
+/** @brief Best-effort UTF-8 line to `3A0FF00A` when notifications enabled. */
+void tgm_service_fw_log_printf(const char *fmt, ...);
 
 /** @brief Notify the client of a PPG data change.
  *
@@ -183,7 +243,7 @@ int tgm_service_send_temp_notify(int16_t new_temp);
  * This function notifies the connected client device of an update to the battery
  * value
  *
- * @param[in] battery_value Battery value in mV (uint16)
+ * @param[in] battery_value Battery value in millivolts (int32)
  *
  *
  * @retval 0 If the operation was successful.

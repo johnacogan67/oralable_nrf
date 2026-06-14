@@ -8,7 +8,7 @@
 | PPG | MAXM86161 @ I²C `0x62` |
 | ACC | LIS2DTW12 @ `0x19` |
 | BLE service | TGM `3A0FF000` |
-| Firmware | **1.0.36-nrfconnect** (see `app/VERSION`) |
+| Firmware | **1.0.37-nrfconnect** (see `app/VERSION`) |
 
 Hardware design ported from NEU/TGM sensor to Altium; board files based on nRF52-DK patterns.
 

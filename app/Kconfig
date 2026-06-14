@@ -6,9 +6,18 @@
 # You can browse these options using the west targets menuconfig (terminal) or
 # guiconfig (GUI).
 
-menu "Zephyr"
+# nRF sysbuild always writes CHIP and MCUBOOT_HARDWARE_DOWNGRADE_PREVENTION into
+# the app .config.sysbuild fragment. Matter defines CHIP; downgrade prevention is
+# only in the NCS Kconfig tree on nRF53/nRF91 — stubs keep nRF52 sysbuild clean.
+config CHIP
+	bool "Matter (unused on Oralable)"
+	default n
+
+config MCUBOOT_HARDWARE_DOWNGRADE_PREVENTION
+	bool "MCUboot HW downgrade prevention (nRF52 stub)"
+	default n
+
 source "Kconfig.zephyr"
-endmenu
 
 config PPG_SAMPLES_PER_FRAME
     int "Number of PPG samples per frame"
@@ -33,6 +42,14 @@ config ACC_SAMPLES_PER_FRAME
     default 1
     help
       Temperature sampling interval in seconds.
+
+config TGM_CONNECT_PROBE_DURATION_S
+    int "BLE connect diagnostic probe duration (seconds)"
+    default 10
+    help
+      After a central connects, stream PPG/ACC/temp for this many seconds even when
+      off-body (worn=0), using a dim LED profile so bench/charger diagnostics get
+      real sensor data without locking worn from die heating. Set 0 to disable.
 
 module = APP
 module-str = APP
