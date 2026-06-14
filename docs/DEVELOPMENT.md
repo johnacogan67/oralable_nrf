@@ -150,7 +150,7 @@ Record known-good pairs after `tandem_validate.sh` + manual smoke.
 |---|---|---|---|---|---|---|---|---|
 | 2026-05-28 | oralable_nrf | c617f81 | 547c2b7 | (pre-1.0.36 gate) | tandem_validate.sh | Build checks | PASS | Baseline battery+BLE |
 | 2026-06-07 | oralable_nrf | (workspace) | (workspace) | **1.0.36-nrfconnect** | tandem + nRF Connect CSV | TGM GATT, worn gate | PASS | nRF-aligned CCC order |
-| 2026-06-07 | oralable_nrf | (this commit) | (paired iOS) | **1.0.37-nrfconnect** | build + flash smoke | 00A/B/C diagnostics, connect probe | **CURRENT** | iOS Developer dump + fw log |
+| 2026-06-07 | oralable_nrf | `4210e97` | `6097a0a` | **1.0.37-nrfconnect** | build + flash smoke | 00A/B/C diagnostics, connect probe | **CURRENT** | iOS Developer dump + fw log |
 
 ### How to add a row
 
