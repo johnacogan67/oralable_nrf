@@ -22,7 +22,7 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 
 | Document | Description |
 |----------|-------------|
-| [DEVELOPMENT.md](./DEVELOPMENT.md) | Firmware + iOS tandem workflow, smoke checklist, compatibility matrix |
+| [DEVELOPMENT.md](./DEVELOPMENT.md) | Firmware + iOS tandem workflow, smoke checklist, **LED/battery**, compatibility matrix |
 | [OTA_DEVICE_MANAGER.md](./OTA_DEVICE_MANAGER.md) | MCUboot + mcumgr OTA via Nordic Device Manager |
 | [../README.md](../README.md) | Build, flash (`flash_and_rtt.sh`), GATT parsing |
 
@@ -31,7 +31,7 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 | Repo | Docs |
 |------|------|
 | **cursor_oralable** | Algorithms, clinical protocol, IR-DC — `docs/README.md` |
-| **oralable_swift** | `LAUNCH_READINESS_CHECKLIST.md`, `CLOUDKIT_PRODUCTION_SETUP.md` |
+| **oralable_swift** | `LAUNCH_READINESS_CHECKLIST.md`, `docs/MOBILE_APP_FLOWS.md`, `CLOUDKIT_PRODUCTION_SETUP.md` |
 | **OralableCore** | BLE models, `ProfessionalHandshakeExport`, algorithms (Swift package) |
 
 ## Current shipping snapshot (pcb00003)

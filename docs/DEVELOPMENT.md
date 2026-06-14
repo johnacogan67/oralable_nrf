@@ -53,6 +53,80 @@ Keeps `oralable_nrf` and `oralable_swift` synchronized. **Doc index:** [README.m
 
 ---
 
+## LED indicators & battery (pcb00003)
+
+Off-body status uses the **MAXM86161 PPG LEDs** (green / red channels), not a separate status LED. Implementation: `app/src/battery_led_indicator.c`.
+
+### LED patterns (device **not worn**)
+
+Worn detection uses die temperature (**> 25.5°C** → worn). When worn, battery indicator LEDs stop; PPG uses red/IR for sensing.
+
+| Power | Battery (firmware %) | LED |
+|-------|----------------------|-----|
+| **On charger** | > 80% | **Solid green** |
+| **On charger** | ≤ 80% | **Flashing green** (500 ms) |
+| **Off charger** | > 80% | **Solid red** |
+| **Off charger** | ≤ 80% | **Flashing red** (500 ms) |
+
+**Full threshold:** `BATTERY_LED_FULL_THRESHOLD_PCT` = **80** (`battery_led_indicator.h`).
+
+**Percent mapping:** CG-320B linear fit — 4.35 V = 100%, 3.0 V = 0% (`battery.c`).
+
+### What users often see
+
+| Observation | Likely meaning |
+|-------------|----------------|
+| Flash **green** on dock, never solid green | Charging but still **≤ 80%** — leave on charger longer (small 15 mAh cell). |
+| **Solid red** off dock | Off dock and firmware reads **> 80%** (can be a stale/high ADC reading on a weak cell). |
+| **Flashing red** off dock | Off dock and **≤ 80%** — **low-battery band**; charge before overnight use. |
+| LEDs change while holding in nRF Connect | Hand heat can push die temp **> 25.5°C** → **worn** mode (PPG red/IR on, battery pattern off). |
+
+### BLE status characteristic (`3A0FF009`)
+
+Four-byte notify (also updated on charge/worn/battery changes):
+
+| Byte | Field |
+|------|--------|
+| 0 | `charging` — 0 off dock, 1 on charger (`chrsts` GPIO) |
+| 1 | `worn` — 0 off-body, 1 on-body (temp > 25.5°C) |
+| 2 | `device_state` — 0 not worn / not charging, 1 not worn / charging, 2 worn |
+| 3 | `battery_pct` — 0–100 |
+
+**nRF Connect:** read or notify `3A0FF009` after connect. Example: `00 00 02 18` → off charger, not worn, **24%**.
+
+**Firmware version:** read `3A0FF006` (string, e.g. `1.0.36`).
+
+### Worn gating & streaming
+
+- **Off-body (`worn=0`):** PPG/ACC notifies are **suppressed** even if CCC is enabled — expected.
+- **On-body cheek:** warm skin + coupling → `worn=1` → PPG/ACC streams after CCC enable.
+- **Bench trap:** holding the clip warms the MCU → can falsely set `worn=1` during nRF Connect tests.
+
+### Low-voltage protection
+
+If `CONFIG_BATTERY_CRITICAL_LOW_SHUTDOWN=y` (see root `prj.conf`), firmware **cold-reboots** when smoothed battery **< 2.8 V** for three consecutive samples (interval depends on `CONFIG_BATTERY_MEASUREMENT_INTERVAL`). Symptoms: BLE drops after ~20–30 s on a depleted cell.
+
+**BATEN (P0.10):** boost latch must stay HIGH — `SYS_INIT` + main loop re-assert (`battery.c`, `main.c`).
+
+### Troubleshooting quick checks
+
+1. **Charge to solid green** on dock before judging off-dock behavior.
+2. Flash + RTT: `./scripts/flash_and_rtt.sh` — look for `Battery: XXXXmV -> YY%` and `Initial charging state`.
+3. nRF Connect: connect, read `3A0FF006` + `3A0FF009`, enable **battery** + **status** notifies only for a 2 min soak off dock.
+4. If **Oralable** missing in scan: advertising may have stopped (`BT_LE_ADV_OPT_ONE_TIME` in `ble.c`); reconnect once or reboot; firmware fix to restart adv periodically is planned.
+
+### Related source files
+
+| Topic | Path |
+|-------|------|
+| LED logic | `app/src/battery_led_indicator.c` |
+| Battery ADC | `app/src/battery.c` |
+| Charge detect | `app/src/main.c` (`chrsts` GPIO) |
+| Worn / state | `app/src/main.c` (`temperature_work_handler`) |
+| Status notify | `app/src/tgm_service.c` (`tgm_service_send_status_notify`) |
+
+---
+
 ## Compatibility matrix
 
 Record known-good pairs after `tandem_validate.sh` + manual smoke.
@@ -69,4 +143,4 @@ cd ~/work/oralable_nrf && git rev-parse --short HEAD
 cd ~/work/oralable_swift && git rev-parse --short HEAD
 ```
 
-*Last updated: June 2026*
+*Last updated: June 2026 (LED/battery section)*
