@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# Gen2 VERSION overlay (apply when building pcb00003_gen2).
+#
+# Usage (once board builds):
+#   west build -b pcb00003_gen2 -d build_pcb00003_gen2 app --sysbuild \
+#     -- -DVERSION_FILE=${BOARD_DIR}/VERSION.gen2
+#
+# Or copy these values into app/VERSION on the Gen2 branch only if
+# Gen1 and Gen2 never share the same VERSION file in one CI job.
+
+VERSION_MAJOR = 2
+VERSION_MINOR = 0
+PATCHLEVEL = 0
+VERSION_TWEAK = 0
+EXTRAVERSION = -gen2-nrfconnect

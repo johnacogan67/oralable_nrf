@@ -9,9 +9,10 @@ Source documents (Seed A data room, 2026-06-09):
 
 ## Summary
 
-| Block | Current (pcb00003) | Next |
-|-------|-------------------|------|
-| Wireless MCU | **nRF52832** (bare QFN, board antenna) | **Kaga ES4L15BA1** module → Nordic **nRF54L15-CAAA-R** |
+| Block | **Gen1** (BOM REV8, shipping pilot) | **Gen2** (BOM REV9, REV11) |
+|-------|-------------------------------------|----------------------------|
+| Wireless MCU | **Kaga ES2832AA2** → nRF52832 | **Kaga ES4L15BA1** → **nRF54L15-CAAA-R** |
+| Battery | CG-320B ~15 mAh | **LP260820** 30 mAh |
 | PPG | **MAXM86161** (I²C 0x62, R/G/IR) | **MAXM86161EFD+** (same device; formal production spec) |
 | Accelerometer | LIS2DTW12 | TBD on new PCB (likely retained) |
 | BLE | 5.x / SoftDevice legacy path | **Bluetooth Core 6.0** (nRF Connect SDK) |
@@ -93,7 +94,11 @@ PPG stays on **MAXM86161** (integrated module) rather than discrete **MAX86171/8
 
 ## Firmware migration checklist
 
-1. **Board** — New Zephyr board (`byteexplain,pcb0000x` or ES4L15 carrier) with `nrf54l15` DTS, partition map, and Kaga module pin assignments.
+**Detailed change map / roadmap:** [cursor_oralable/docs/GEN1_GEN2_MIGRATION.md](../../cursor_oralable/docs/GEN1_GEN2_MIGRATION.md)  
+**Living checklist / timeline:** [cursor_oralable/docs/GEN1_GEN2_TRACKING.md](../../cursor_oralable/docs/GEN1_GEN2_TRACKING.md)  
+**Git workflow:** [GEN2_GIT_WORKFLOW.md](./GEN2_GIT_WORKFLOW.md)
+
+1. **Board** — Stub at `boards/byteexplain/pcb00003_gen2/` (branch `feature/gen2-nrf54l15`). Lock DTS pinmux from REV11 netlist, then complete NCS `nrf54l15` includes + partitions.
 2. **NCS upgrade** — Confirm workspace NCS version supports nRF54L15 + Bluetooth 6.0 controller.
 3. **Pinmux** — Map I²C0/TWIM, PPG INT, ACC INT, charger, battery, LEDs within 15 module GPIOs.
 4. **Power tree** — DCC inductor, bulk cap, VLED for MAXM86161 (may need separate rail from 3.3 V module VDD).

@@ -15,14 +15,18 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 
 | Document | Description |
 |----------|-------------|
-| [HARDWARE_ROADMAP_nRF54L15.md](./HARDWARE_ROADMAP_nRF54L15.md) | Kaga ES4L15BA1 module, nRF54L15 migration checklist |
-| [boards/byteexplain/pcb00003/README.md](../boards/byteexplain/pcb00003/README.md) | Current shipping board |
+| [HARDWARE_ROADMAP_nRF54L15.md](./HARDWARE_ROADMAP_nRF54L15.md) | Kaga ES4L15BA1 module, Gen2 migration checklist |
+| [GEN2_GIT_WORKFLOW.md](./GEN2_GIT_WORKFLOW.md) | Branches, tags, VERSION, no-fork policy |
+| [GEN1_GEN2_TRACKING.md](../../cursor_oralable/docs/GEN1_GEN2_TRACKING.md) | Living timeline + G2-P0…P6 checklist |
+| [GEN1_GEN2_MIGRATION.md](../../cursor_oralable/docs/GEN1_GEN2_MIGRATION.md) | Capabilities, BOM delta, firmware map |
+| [boards/byteexplain/pcb00003/README.md](../boards/byteexplain/pcb00003/README.md) | Gen1 shipping board (nRF52832) |
+| [boards/byteexplain/pcb00003_gen2/README.md](../boards/byteexplain/pcb00003_gen2/README.md) | Gen2 board stub (nRF54L15 / REV11) |
 
 ## Firmware operations
 
 | Document | Description |
 |----------|-------------|
-| [DEVELOPMENT.md](./DEVELOPMENT.md) | Firmware + iOS tandem workflow, smoke checklist, **LED/battery**, compatibility matrix |
+| [DEVELOPMENT.md](./DEVELOPMENT.md) | Tandem workflow, smoke checklist, compatibility matrix (GATT/LED detail → system hub) |
 | [OTA_DEVICE_MANAGER.md](./OTA_DEVICE_MANAGER.md) | MCUboot + mcumgr OTA via Nordic Device Manager |
 | [../README.md](../README.md) | Build, flash (`flash_and_rtt.sh`), GATT parsing |
 
@@ -30,7 +34,9 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 
 | Repo | Docs |
 |------|------|
-| **cursor_oralable** | Algorithms, clinical protocol, IR-DC — `docs/README.md` |
+| Repo | Docs |
+|------|------|
+| **cursor_oralable** | [ORALABLE_SYSTEM_ARCHITECTURE.md](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md), algorithms — `docs/README.md` |
 | **oralable_swift** | `LAUNCH_READINESS_CHECKLIST.md`, `docs/MOBILE_APP_FLOWS.md`, `CLOUDKIT_PRODUCTION_SETUP.md` |
 | **OralableCore** | BLE models, `ProfessionalHandshakeExport`, algorithms (Swift package) |
 
@@ -38,7 +44,7 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 
 | Item | Value |
 |------|--------|
-| Firmware | **1.0.37-nrfconnect** (`app/VERSION`) |
+| Firmware | **`app/VERSION`** (e.g. 1.0.37-nrfconnect); bench validation matrix → [system architecture §3](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md#3-validation-status-matrix-where-we-are) |
 | iOS minimum | **1.0.36** (`FirmwareGate`) |
 | Board | `pcb00003/nrf52832` |
 | First SWD flash | `build_pcb00003/merged.hex` |

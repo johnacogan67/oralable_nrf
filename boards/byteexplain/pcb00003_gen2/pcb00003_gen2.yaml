@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# Gen2 board — nRF54L15 (Kaga ES4L15BA1). Pin numbers are PLACEHOLDERS.
+
+identifier: pcb00003_gen2/nrf54l15
+name: PCB00003-TGM Gen2 REV11 (ES4L15BA1)
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 256
+flash: 1536
+supported:
+  - adc
+  - gpio
+  - i2c
+  - watchdog
+vendor: byteexplain

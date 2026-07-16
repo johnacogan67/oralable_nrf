@@ -1,0 +1,53 @@
+/*
+ * Copyright (c) 2026 ByteExplain / JAC Dental
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * PCB00003 Gen2 (TGM-REV11 / BOM REV9) — Kaga ES4L15BA1 / nRF54L15
+ *
+ * WARNING: GPIO assignments below are HYPOTHESES from schematic labels.
+ * Lock from Altium netlist or bench continuity before any flash.
+ * Tracking: G2-P0 in cursor_oralable/docs/GEN1_GEN2_TRACKING.md
+ */
+
+/dts-v1/;
+/* When west/NCS has nRF54L15: #include <nordic/nrf54l15_cpuapp.dtsi> */
+#include "pcb00003_gen2-pinctrl.dtsi"
+
+/ {
+	model = "ByteExplain PCB00003-TGM Gen2 REV11 ES4L15BA1";
+	compatible = "byteexplain,pcb00003-gen2";
+
+	chosen {
+		/* zephyr,sram / flash / code-partition — fill when NCS board template is copied */
+	};
+
+	aliases {
+		watchdog0 = &wdt0;
+	};
+
+	zephyr,user {
+		/*
+		 * PLACEHOLDER — Gen1 used P0.10 / P0.05.
+		 * Remap to REV11 nets BATEN / CHRSTS after pinmux lock.
+		 */
+		baten-gpios = <&gpio2 5 GPIO_ACTIVE_HIGH>;
+		chrsts-gpios = <&gpio1 7 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		sens-en-gpios = <&gpio1 6 GPIO_ACTIVE_HIGH>;
+		io-channels = <&adc 0>;
+	};
+};
+
+/*
+ * Sensors (enable after I²C pinctrl verified):
+ *
+ * &i2c20 {
+ *   status = "okay";
+ *   pinctrl-0 = <&i2c20_default>;
+ *   pinctrl-1 = <&i2c20_sleep>;
+ *   pinctrl-names = "default", "sleep";
+ *   lis2dtw12@19 { ... int-gpios = INT_ACC; };
+ *   maxm86161@62 { ... int-gpios = INT_OPT; };
+ * };
+ *
+ * Flash partitions: size for 1.5 MB NVM — do not copy Gen1 512 KB map.
+ */

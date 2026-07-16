@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Gen2 scaffold — pinmux TBD (REV11). Do not flash until G2-P0 pin verify.
+
+board:
+  name: pcb00003_gen2
+  vendor: byteexplain
+  socs:
+    - name: nrf54l15

@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_PCB00003_GEN2
+	select SOC_NRF54L15_CPUAPP
