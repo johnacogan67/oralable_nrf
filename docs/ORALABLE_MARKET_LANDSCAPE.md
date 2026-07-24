@@ -2,7 +2,7 @@
 
 Comprehensive positioning for Oralable MAM across hardware, mobile software, data architecture, competitive landscape, and the path from **wellness wearable** to **regulated medical device**.
 
-**Related docs:** [Appendix A](#appendix-a-nordic-wearables-comparison) · [Appendix B](#appendix-b-ppg-sensor-comparison) · [HARDWARE_ROADMAP_nRF54L15.md](./HARDWARE_ROADMAP_nRF54L15.md) · [OTA_DEVICE_MANAGER.md](./OTA_DEVICE_MANAGER.md)
+**Related docs:** [Appendix A](#appendix-a-nordic-wearables-comparison) · [Appendix B](#appendix-b-ppg-sensor-comparison) · [HARDWARE_ROADMAP_nRF54L15.md](./HARDWARE_ROADMAP_nRF54L15.md) · [OTA_DEVICE_MANAGER.md](./OTA_DEVICE_MANAGER.md) · Engineering hub: [ORALABLE_SYSTEM_ARCHITECTURE.md](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md) (§3 validation matrix)
 
 **Cross-repo:** iOS (`oralable_swift`), shared library (`OralableCore`), Python validation (`cursor_oralable`)
 
@@ -32,16 +32,18 @@ Comprehensive positioning for Oralable MAM across hardware, mobile software, dat
 
 ## 1. Executive summary
 
-**Oralable is a cheek-worn Nordic BLE sensor (MAXM86161 + LIS2DTW12) aimed at sleep bruxism via hemodynamic IR-DC occlusion and jaw accelerometry — not a ring, not sEMG, not a general wellness platform.**
+**Oralable is a Nordic BLE clip + magnetic-case sensor (MAXM86161 + LIS2DTW12) aimed at overnight temple vitals (Phase 0) and sleep bruxism via hemodynamic IR-DC occlusion + jaw accelerometry (Phase 1+) — not a ring, not sEMG, not a general wellness platform.**
 
-| Layer | Today | Trajectory |
-|-------|-------|------------|
-| **Hardware** | pcb00003, nRF52832, MAXM86161, 50 Hz raw BLE | nRF54L15 (Kaga ES4L15BA1), same PPG, on-device ML headroom |
+| Layer | Today (Phase 0 · Gen1) | Trajectory |
+|-------|------------------------|------------|
+| **Hardware** | pcb00003 **BOM REV8** / **REV10**, Kaga **ES2832AA2** (nRF52832), FW **1.0.70**, Oralable magnetic case | **Gen2** BOM REV9 / REV11, Kaga **ES4L15BA1** (nRF54L15), FW 2.0.x, on-device ML headroom |
 | **Firmware** | TGM GATT, worn-gated streaming, MCUboot/mcumgr OTA | Richer services, in-app DFU, locked algorithm builds for clearance |
-| **iOS** | Consumer + dentist apps, OralableCore, CloudKit share | Production CloudKit, feature-flag lift, clinical exports on by default |
+| **iOS** | Vitals phase: temple HR/SpO₂, placement picker | Phase 1+ muscle UI; production CloudKit; clinical exports |
 | **Android** | Not built; marketing cites 2026 | Native Kotlin recommended; share BLE/parser spec via OralableCore port |
-| **Algorithms** | Phone-side 50 Hz pipeline + Core ML Temporalis | Cross-validated vs ANR EMG; Python gold-standard in `cursor_oralable` |
+| **Algorithms** | Phase 0 quality-gated vitals; phone-side 50 Hz pipeline | Phase 1+ IR-DC/TFI/SASHB; Core ML Temporalis; Python gold-standard |
 | **Regulatory** | Wellness disclaimers; App Store blocks medical claims | 510(k)/MDR scaffolding in `RegulatoryPackageBuilder`; Beacon-style trials |
+
+Canonical map: `cursor_oralable/docs/PRODUCT_ROADMAP.md` · cost/timeline: `cursor_oralable/docs/data_room/COST_AND_TIMELINE.md` · IP stages: `cursor_oralable/docs/IP_NORTH_STAR.md` (Stage A wearable → Stage B medical).
 
 In the landscape, Oralable is **adjacent to EMG bruxism devices** (ANR M40, Cometa) and **orthogonal to health rings** (JCRing, Oura, IDO, WHOOP). It also parallels **longitudinal overnight monitors** — Wellue (SpO₂), Aktiia/Hilo (BP), SOND (sleep coaching) — same ambulatory + professional export shape, different biomarker (see §14–15).
 
@@ -53,7 +55,7 @@ Most wearables compared in this program — Oura, JCRing, IDO, Ultrahuman, WHOOP
 
 | Dimension | Typical health ring / strap | **Oralable MAM** |
 |-----------|------------------------------|------------------|
-| **Body site** | Finger or wrist (peripheral pulse) | **Cheek / masseter** (jaw muscle occlusion) |
+| **Body site** | Finger or wrist (peripheral pulse) | **Phase 0: temple** (vitals); **Phase 1+: cheek / masseter / temporalis** (jaw occlusion) |
 | **Primary signal** | PPG for HR, HRV, SpO₂, sleep staging | **PPG + IR-DC hemodynamic occlusion** + accelerometer jaw vibration |
 | **Primary use case** | Readiness, strain, general sleep quality | **Sleep bruxism** (clenching/grinding detection) |
 | **Signal modality** | Optical only (sometimes + skin temp, ECG) | Optical + motion; **not sEMG** |
@@ -77,17 +79,20 @@ Oralable sits in a **niche orthogonal to rings**: same broad sensor classes (PPG
 
 ## 3. Hardware: now vs roadmap
 
-### 3.1 Today (shipping path: pcb00003)
+### 3.1 Today (shipping path: Gen1 pcb00003)
 
 | Block | Choice | Implication |
 |-------|--------|-------------|
-| MCU | **nRF52832** (512K Flash, 64K RAM) | Same tier as ArcX, early Polar — smallest/cheapest Nordic health tier |
+| Identity | **Gen1** · **BOM REV8** · PCB **REV10** · Kaga **ES2832AA2** | Ed/Pedro pilot kits (July 2026) |
+| MCU | **nRF52832** (512K Flash, 64K RAM) via ES2832AA2 | Same tier as ArcX, early Polar — smallest/cheapest Nordic health tier |
 | PPG | **ADI MAXM86161** @ I²C 0x62 | Only product in the competitive set with a **public, named** integrated PPG module |
 | ACC | **LIS2DTW12** @ 50 Hz | Jaw vibration / actigraphy, sync-tap anchoring |
-| Battery | CG-320B 15 mAh LiPo | Small cell; multi-day life TBD; 8 h clinical night is design target |
+| Battery | CG-320B ~15 mAh LiPo | Small cell; multi-day life TBD; 8 h clinical night is design target |
+| Charging | **Oralable magnetic case** (LTC4124 / LTC6990) | **Not WPC Qi** |
+| Placement (Phase 0) | **Temple** HR/SpO₂ | Muscle/cheek Protocol B = Phase 1+ |
 | BLE | Custom **TGM GATT** service (`3A0FF000`) | Raw 50 Hz PPG (R/G/IR) + ACC + temp + status |
 | OTA | **MCUboot + mcumgr SMP** | Nordic Device Manager on iPhone; open NCS stack |
-| FW version | **1.0.37-nrfconnect** (diagnostics GATT `00A`–`00C`; iOS minimum **1.0.36** via `FirmwareGate`) |
+| FW version | Pilot ship **1.0.70** (iOS gate min **1.0.63** / recommend **1.0.70**; app **4.3.3**) · Gen2 **2.0.x** — [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) |
 
 **BLE characteristics (TGM service):**
 
@@ -99,9 +104,9 @@ Oralable sits in a **niche orthogonal to rings**: same broad sensor classes (PPG
 | `...f004` | Battery | mV, read + notify |
 | `...f005` | Device ID | uint64 |
 | `...f006` | Firmware version | string |
-| `...f009` | Status | charging, **worn**, device_state, battery % |
+| `...f009` | Status | on_dock, worn, device_state, battery % (+ `charge_active` on FW ≥ 1.0.47) |
 
-**Streaming policy:** On-body → full PPG/ACC at 50 Hz; off-body → PPG/ACC hardware stopped, status still available. Worn detection uses die temperature thresholds (~25.5 °C on / ~24.5 °C off), with firmware status char as primary source for iOS.
+**Streaming policy:** On-body → full PPG/ACC at 50 Hz while connected; off-body → PPG/ACC hardware stopped, status still available. **Worn + BLE link down (1.0.70):** sensors keep draining FIFO (notifies off). **Advertising:** restart from NCS connection `.recycled` (not disconnect callback). Worn detection uses die temperature thresholds (~25.5 °C on / ~24.5 °C off) or manual placement mode on Gen1 pilot; firmware status char is primary source for iOS.
 
 ### 3.2 Roadmap (data room: nRF54L15 generation)
 
@@ -178,13 +183,15 @@ Oralable REV10 (BLE)
           └→ SessionHistoryStore (hourly TFI, SASHB rollups)
 ```
 
-**Connect sequence** (nRF Connect–aligned):
+**Connect sequence** (Nordic Academy / Apple CoreBluetooth–aligned):
 
 1. Read device ID (`3A0FF005`)
-2. Read firmware version (`3A0FF006`) → **FirmwareGate** (minimum **1.0.36**)
-3. Staggered CCC enables (battery → status → PPG → ACC → temp)
-4. Worn-gated streaming; `ConnectionReadiness.ready`
-5. Start `AutomaticRecordingSession`
+2. Read firmware version (`3A0FF006`) → **FirmwareGate** (minimum **1.0.63**; recommend **1.0.70**)
+3. Manual placement write (`00B` 0x09) before streaming CCCs
+4. Staggered CCC enables — **await each confirm** (battery → status → PPG → ACC → temp)
+5. Ready when PPG + ACC + **status + battery** CCC confirms are set
+6. `CBConnectPeripheralOptionNotifyOnDisconnectionKey` for reconnect wakeups
+7. Worn-gated streaming; start `AutomaticRecordingSession`
 
 **Key source files:**
 
@@ -574,7 +581,7 @@ Any Android implementation must reproduce:
 | Capability | Spec source |
 |------------|-------------|
 | TGM GATT connect sequence | `DeviceConnectionCoordinator`, `BLEConstants.TGM` |
-| Firmware gate ≥ 1.0.36 | `FirmwareGate.swift` |
+| Firmware gate min **1.0.63** / recommend **1.0.70** | `FirmwareGate.swift` |
 | PPG/ACC/temp/status parsing | `BLEDataParser.swift` |
 | 50 Hz alignment / bucketing | `DeviceManagerAdapter` |
 | Worn-gated recording | `AutomaticRecordingSession`, `TGMDeviceStatus` |

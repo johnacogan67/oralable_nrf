@@ -1,7 +1,7 @@
 # Oralable firmware documentation index
 
 Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).  
-**Strategy hub:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) (v1.2, June 2026). **Doc pack:** `docs/VERSION` → **1.2.0**.
+**Strategy hub:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) (v1.2, June 2026). **Doc pack:** `docs/VERSION` → **1.2.2**.
 
 ## Product & market
 
@@ -16,6 +16,9 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 | Document | Description |
 |----------|-------------|
 | [HARDWARE_ROADMAP_nRF54L15.md](./HARDWARE_ROADMAP_nRF54L15.md) | Kaga ES4L15BA1 module, Gen2 migration checklist |
+| [PRODUCT_ROADMAP.md](../../cursor_oralable/docs/PRODUCT_ROADMAP.md) | Phase 0 / Phase 1+ / Gen2 features + Hardware ↔ BOM map |
+| [IP_NORTH_STAR.md](../../cursor_oralable/docs/IP_NORTH_STAR.md) | Stage A wearable → Stage B medical; new US patent |
+| [COST_AND_TIMELINE.md](../../cursor_oralable/docs/data_room/COST_AND_TIMELINE.md) | Planning cost ranges + timeline |
 | [GEN2_GIT_WORKFLOW.md](./GEN2_GIT_WORKFLOW.md) | Branches, tags, VERSION, no-fork policy |
 | [GEN1_GEN2_TRACKING.md](../../cursor_oralable/docs/GEN1_GEN2_TRACKING.md) | Living timeline + G2-P0…P6 checklist |
 | [GEN1_GEN2_MIGRATION.md](../../cursor_oralable/docs/GEN1_GEN2_MIGRATION.md) | Capabilities, BOM delta, firmware map |
@@ -44,10 +47,10 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 
 | Item | Value |
 |------|--------|
-| Firmware | **`app/VERSION`** (e.g. 1.0.37-nrfconnect); bench validation matrix → [system architecture §3](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md#3-validation-status-matrix-where-we-are) |
-| iOS minimum | **1.0.36** (`FirmwareGate`) |
-| Board | `pcb00003/nrf52832` |
-| First SWD flash | `build_pcb00003/merged.hex` |
-| OTA artifact | `build_pcb00003/dfu_application.zip` |
+| Firmware | **1.0.70** pilot ship — [VERSION_ALIGNMENT](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) · [architecture §3](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md#3-validation-status-matrix-where-we-are) |
+| iOS | App **4.3.3** · `FirmwareGate` min **1.0.63** · recommend **1.0.70** |
+| Board | `pcb00003/nrf52832` (Gen1) · `pcb00003_gen2` stub (Gen2) |
+| First SWD flash | data-room / `artifacts/oralable_1.0.70_pcb00003_merged.hex` |
+| OTA artifact | `artifacts/oralable_1.0.70_pcb00003_dfu_application.zip` |
 
-*Last updated: June 2026*
+*Last updated: July 2026*

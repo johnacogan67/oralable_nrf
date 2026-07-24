@@ -36,7 +36,7 @@ git push -u origin feature/gen2-nrf54l15
 
 ```bash
 # Gen1 release
-git tag -a v1.0.67 -m "Gen1: …"
+git tag -a v1.0.70 -m "Gen1: STAT blink ship …"
 # Gen2 phase gate
 git tag -a v2.0.0-gen2-g2p0 -m "Gen2 G2-P0: blink+SWD on REV11"
 ```
@@ -54,10 +54,10 @@ oralable_<ver>_pcb00003_gen2_merged.hex      # Gen2
 
 | Board | File | Example GATT `006` |
 |-------|------|--------------------|
-| Gen1 | `app/VERSION` | `1.0.66-nrfconnect` |
+| Gen1 | `app/VERSION` | `1.0.70` |
 | Gen2 | `boards/.../pcb00003_gen2/VERSION.gen2` | `2.0.0-gen2-nrfconnect` |
 
-iOS firmware gate should accept Gen1 `1.0.63+` for pilot; add Gen2 `2.0.x` when G2-P2 ships.
+iOS firmware gate: Gen1 min `1.0.63` / recommend `1.0.70` (app **4.3.3**); add Gen2 `2.0.x` when G2-P2 ships.
 
 ### Status helper
 
