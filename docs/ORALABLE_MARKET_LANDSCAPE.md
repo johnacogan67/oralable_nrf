@@ -998,14 +998,14 @@ Both sell **continuity of care outside the chair** — not a single snapshot at 
 
 ### Product opportunity: unified overnight report
 
-Natural next UX spec — **one page per night** for consumer and dentist:
+**Status (Jul 2026):** Share/clinical **PDF path shipped** (hypnogram-first + event CSV; Mac + iOS). **Open:** in-app morning card / dentist night selector. Spec: `cursor_oralable/docs/OVERNIGHT_NIGHT_REPORT.md`.
 
-- TFI timeline by hour
-- SASHB band / hypoxic segments
-- Rescue events overlaid on SpO₂ context
+Grammar (Hilo nocturnal BP / Wellue SpO₂ drop chart):
+
+- State hypnogram (primary)
+- TFI / SASHB / rescue / tonic bands (BP-style)
+- Hourly stack + dual-rail (secondary)
 - HR strip (secondary)
-
-Mirrors Hilo's **nocturnal BP profile** and Wellue's **SpO₂ drop chart** — same report card grammar, Oralable-specific biomarkers.
 
 ---
 
