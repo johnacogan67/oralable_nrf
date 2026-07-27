@@ -14,6 +14,7 @@ Comprehensive positioning for Oralable MAM across hardware, mobile software, dat
 2. [The core insight: not a ring](#2-the-core-insight-not-a-ring)
 3. [Hardware: now vs roadmap](#3-hardware-now-vs-roadmap)
 4. [EMG vs PPG: second axis](#4-emg-vs-ppg-second-axis)
+4b. [Modality ladder: where Oralable sits](#4b-modality-ladder-where-oralable-sits)
 5. [Mobile apps & data collection](#5-mobile-apps--data-collection) — UX flows: `oralable_swift/docs/MOBILE_APP_FLOWS.md`
 6. [Data architecture: wellness black box vs open pipeline](#6-data-architecture-wellness-black-box-vs-open-pipeline)
 7. [Competitive map](#7-competitive-map)
@@ -32,7 +33,7 @@ Comprehensive positioning for Oralable MAM across hardware, mobile software, dat
 
 ## 1. Executive summary
 
-**Oralable is a Nordic BLE clip + magnetic-case sensor (MAXM86161 + LIS2DTW12) aimed at overnight temple vitals (Phase 0) and sleep bruxism via hemodynamic IR-DC occlusion + jaw accelerometry (Phase 1+) — not a ring, not sEMG, not a general wellness platform.**
+**Oralable is a Nordic BLE clip + magnetic-case sensor (MAXM86161 + LIS2DTW12) aimed at overnight temple vitals (Phase 0) and sleep bruxism via hemodynamic IR-DC occlusion + jaw accelerometry (Phase 1+) — not a ring, not sEMG, not a general wellness platform.** On the broader modality ladder it is an **optical hemodynamic / OMG** device: orthogonal to MEP/ESG/EEG and intraoperative monitoring; adjacent to sEMG for validation (see [§4b](#4b-modality-ladder-where-oralable-sits)).
 
 | Layer | Today (Phase 0 · Gen1) | Trajectory |
 |-------|------------------------|------------|
@@ -149,6 +150,28 @@ Bruxism has historically been measured with **surface EMG** on the masseter. The
 `RecordingSession` and `DeviceManagerFactory` distinguish EMG vs IR sessions. This is a **validation architecture**: PPG-based bruxism vs clinical gold standard (EMG), without shipping electrodes to consumers.
 
 See [Appendix A](#appendix-a-nordic-wearables-comparison) (EMG section).
+
+---
+
+## 4b. Modality ladder: where Oralable sits
+
+Broader neural / muscle measurement stack (distilled from external Gemini temple-PPG exploration — **not product claims**). Full matrix: `cursor_oralable/docs/data_room/GEMINI_TEMPLE_PPG_AVENUES.md` · roadmap [PRODUCT_ROADMAP.md §2b](../../cursor_oralable/docs/PRODUCT_ROADMAP.md#2b-technology-avenues).
+
+| Class | Examples | What it measures | Oralable relation |
+|-------|----------|------------------|-------------------|
+| Direct neural / IOM | MEP, D-wave, ESG, BCI arrays | Electrical descending tracts | **Orthogonal** — clinic / surgery |
+| Brain electrical | EEG, CMC (+EMG) | Cortical / corticomuscular sync | **Orthogonal** — PPG may use ANS/HRV proxy only |
+| Muscle electrical | sEMG (ANR, Cometa) | Action potentials | **Adjacent** gold standard (validation) |
+| Optical muscle (OMG) | Temple/cheek IR-DC PPG | Hemodynamic occlusion | **Oralable core** (Phase 1+) |
+| Scalp fNIRS | Cognitive / motor cortex blood | Neurovascular coupling | Related physics; different site / claim |
+| Overnight SpO₂ / BP peers | Wellue, Aktiia/Hilo | SpO₂ / BP time series | Same report grammar; different biomarker |
+| Health rings | Oura, WHOOP, JCRing | Finger/wrist readiness | **Orthogonal** site and problem |
+
+**Temporal lag:** EEG/EMG/MEP are millisecond-scale. PPG optical myography tracks blood-volume change with a hemodynamic delay (~1–5 s). That is acceptable for ambulatory overnight phenotype mapping; it is **not** a substitute for intraoperative monitoring or millisecond nerve-conduction diagnostics.
+
+**Shipping into (Stage A):** temple vitals → IR-DC bruxism / TFI / SASHB overnight patterns. **Not** shipping into: migraine diagnosis, TBI/seizure detection, stroke/carotid screening, PTT BP, or active therapy claims — those stay research / Stage B / out-of-scope per roadmap §2b.
+
+**Form factor:** night temple **clip** is the product of record. Day glasses/frames and haptic biofeedback are avenues only (actuator not on Gen1 BOM).
 
 ---
 
