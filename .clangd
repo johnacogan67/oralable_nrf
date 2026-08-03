@@ -1,0 +1,15 @@
+# Point clangd at a west-generated compile DB so Zephyr / app includes resolve.
+# Refresh after: west build -b pcb00003/nrf52832 app -d build_pcb00003_test
+# (or change CompilationDatabase to your active -d build dir)
+CompileFlags:
+  CompilationDatabase: build_pcb00003_test
+  # arm-zephyr-eabi gcc flags that host clangd often rejects
+  Remove:
+    - -fno-reorder-functions
+    - -fno-pipe
+    - --param=*
+    - -mfp16-format=*
+    - -fstack-usage
+    - -fno-defer-pop
+Index:
+  Background: Build

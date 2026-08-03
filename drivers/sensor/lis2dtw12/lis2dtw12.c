@@ -3,6 +3,7 @@
  */
 
 #include <app/drivers/lis2dtw12.h>
+#include <zephyr/drivers/i2c.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(lis2dtw12, CONFIG_LIS2DTW12_LOG_LEVEL);
@@ -140,10 +141,10 @@ int acc_sensor_get_data(const struct i2c_dt_spec *i2c, struct acc_sample *acc_da
     if (err)
     {
         LOG_ERR("Failed to read FIFO samples");
+        return err;
     }
 
     uint8_t fifo_data_count;
-    // Check for overflow
     if (fifo_samples & 0x40)
     {
         LOG_WRN("FIFO overflow detected, discarding data");
@@ -155,13 +156,24 @@ int acc_sensor_get_data(const struct i2c_dt_spec *i2c, struct acc_sample *acc_da
         LOG_DBG("FIFO data count: %d", fifo_data_count);
     }
 
-    // Read the FIFO data
-    uint8_t byte_count = fifo_data_count * 3 * 2; // 2 bytes per axis, 3 axes
-    uint8_t fifo_data[byte_count];
+    if (fifo_data_count == 0)
+    {
+        *sample_count = 0;
+        return 0;
+    }
+
+    if (fifo_data_count > CONFIG_ACC_SAMPLES_PER_FRAME)
+    {
+        fifo_data_count = CONFIG_ACC_SAMPLES_PER_FRAME;
+    }
+
+    uint8_t fifo_data[CONFIG_ACC_SAMPLES_PER_FRAME * 6];
+    const uint8_t byte_count = fifo_data_count * 6;
     err = i2c_burst_read_dt(i2c, LIS2DTW12_OUT_X_L, fifo_data, byte_count);
     if (err)
     {
         LOG_ERR("Failed to read FIFO data");
+        return err;
     }
 
     *sample_count = fifo_data_count;

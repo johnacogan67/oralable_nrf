@@ -1,8 +1,29 @@
 # Oralable Development Workflow (firmware + iOS)
 
-Keeps `oralable_nrf` and `oralable_swift` synchronized. **Doc index:** [README.md](./README.md) · **Product:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md)
+**App working diagrams:** [MOBILE_APP_FLOWS.md §2](../../oralable_swift/docs/MOBILE_APP_FLOWS.md#2-how-the-patient-app-works--phase-0)
+
+Keeps `oralable_nrf` and `oralable_swift` synchronized. **Doc index:** [README.md](./README.md) · **Product:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) · **Figures:** [FIGURES.md](./FIGURES.md)
 
 **System architecture & validation matrix:** [cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md) (truth registry, §3 status, GATT detail). **This file** covers tandem workflow, smoke checklist, and compatibility matrix only.
+
+```mermaid
+flowchart LR
+  FW[oralable_nrf change] --> Build[build_firmware flash]
+  Build --> Tandem[tandem_validate.sh]
+  iOS[oralable_swift change] --> Tandem
+  Tandem --> Smoke[Manual BLE smoke]
+  Smoke --> NRF[nRF Connect CSV]
+  NRF --> Matrix[Compatibility matrix row]
+  Matrix --> Arch[Architecture section 3 if status changed]
+```
+
+![FIG-NRF-002 Gen1 module](./figures/FIG-NRF-002-gen1-module-photo.svg)
+
+*Figure FIG-NRF-002 — Kaga ES2832AA2 module photo (placeholder).*
+
+![FIG-NRF-004 GATT notify timing](./figures/FIG-NRF-004-gatt-notify-timing.svg)
+
+*Figure FIG-NRF-004 — GATT notify timing sketch (placeholder).*
 
 ---
 
@@ -24,6 +45,27 @@ Keeps `oralable_nrf` and `oralable_swift` synchronized. **Doc index:** [README.m
 | Flash + RTT | `oralable_nrf/scripts/flash_and_rtt.sh` |
 | OTA | [OTA_DEVICE_MANAGER.md](./OTA_DEVICE_MANAGER.md) |
 | nRF Connect rule | `oralable_nrf/.cursor/rules/nrf-connect-validation.mdc` |
+
+### IDE / clangd (Cursor · VS Code)
+
+Red squiggles on Zephyr includes (`app/drivers/…`, `uint8_t`, `LOG_*`) are usually **missing compile DB**, not real build failures.
+
+| File | Role |
+|------|------|
+| `.clangd` | Points clangd at `build_pcb00003_test` |
+| `compile_commands.json` | Symlink → that build’s DB |
+| `.vscode/settings.json` | `C_Cpp` + clangd compile-commands dir |
+
+After a fresh clone or SDK bump, regenerate then reload the window:
+
+```bash
+west build -b pcb00003/nrf52832 app -d build_pcb00003_test
+# If you use another -d dir, update .clangd CompilationDatabase + the symlink
+```
+
+Command Palette → **Developer: Reload Window** (or restart clangd) so diagnostics refresh.
+
+**Driver source of truth:** out-of-tree sensors live under repo-root `drivers/sensor/` (e.g. `drivers/sensor/lis2dtw12/lis2dtw12.c`), not under `app/drivers/`.
 
 ---
 

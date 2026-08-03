@@ -1,3 +1,9 @@
 {
-    "cmake.sourceDirectory": "/Users/johnacogan67/tgm_firmware/nrf"
+  "cmake.configureOnOpen": false,
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build_pcb00003_test/compile_commands.json",
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}/build_pcb00003_test",
+    "--background-index"
+  ]
 }
