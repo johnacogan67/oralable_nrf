@@ -51,6 +51,108 @@ config TGM_CONNECT_PROBE_DURATION_S
       off-body (worn=0), using a dim LED profile so bench/charger diagnostics get
       real sensor data without locking worn from die heating. Set 0 to disable.
 
+config TGM_DEBUG_REBOOT_INTERVAL_S
+    int "Optional debug periodic reboot interval (seconds, 0=off)"
+    default 0
+    help
+      When non-zero, firmware warm-reboots after this many seconds since boot.
+      Intended for bench recovery on Gen1 units with stuck BLE advertising.
+      Can also be set at runtime via GATT config opcode 0x0A from the iOS app.
+
+config TGM_POST_PROBE_WORN_LOCKOUT_S
+    int "Post-probe worn temperature lockout (seconds)"
+    default 90
+    help
+      After the connect probe ends, die temperature cannot latch worn=1 for this many
+      seconds. Prevents bench PPG heat from falsely setting worn off-body. Set 0 to
+      disable (only the active probe window blocks worn latch).
+
+config CHRSTS_STAT_ACTIVITY
+    bool "Interpret LTC4124 STAT blink as charging (REV10)"
+    default y
+    help
+      LTC4124 STAT (CHRSTS) blinks while charging and stays asserted when charge
+      current tapers. When enabled, firmware treats edge activity as charging,
+      steady assert as on-pad taper, and steady inactive as undocked. This replaces
+      the old "stable GPIO level" dock debounce that never latched during blink.
+
+config CHRSTS_BLINK_EDGE_MIN
+    int "Min CHRSTS edges per dock poll to declare charging"
+    default 2
+    depends on CHRSTS_STAT_ACTIVITY
+    help
+      GPIO both-edge interrupts counted over each dock-poll window. At or above
+      this count, on_dock=1 and charge_active=1 (flashing red LED).
+
+config CHRSTS_TAPER_HOLD_S
+    int "Steady STAT assert seconds before charge taper"
+    default 3
+    depends on CHRSTS_STAT_ACTIVITY
+    help
+      After blinking stops, STAT must stay asserted this many dock-poll seconds
+      before charge_active clears (solid red / almost-full, not necessarily 4.2 V).
+
+config CHRSTS_UNDOCK_HOLD_S
+    int "Steady STAT inactive seconds before undock"
+    default 3
+    depends on CHRSTS_STAT_ACTIVITY
+    help
+      STAT must stay inactive with no edges this many dock-poll seconds before
+      on_dock clears.
+
+config CHRSTS_DEBOUNCE_MS
+    int "Charger detect (chrsts) debounce (milliseconds)"
+    default 2000
+    depends on !CHRSTS_STAT_ACTIVITY
+    help
+      Legacy: minimum stable time before a chrsts GPIO edge updates charging state.
+      Unused when CHRSTS_STAT_ACTIVITY is enabled.
+
+config CHRSTS_SAMPLE_COUNT
+    int "Charger detect (chrsts) majority-vote sample count"
+    default 3
+    help
+      After debounce, read chrsts this many times; charging state changes only when a
+      strict majority of samples agree on the new level. Also used for bench snapshots.
+
+config CHRSTS_SAMPLE_INTERVAL_MS
+    int "Charger detect (chrsts) sample spacing (milliseconds)"
+    default 50
+    help
+      Delay between chrsts GPIO reads during majority-vote sampling.
+
+config CHRSTS_INVERT
+    bool "Invert chrsts GPIO active level"
+    default n
+    help
+      Invert the logical chrsts level after devicetree GPIO_ACTIVE_LOW is applied.
+      Leave disabled unless bench testing shows the dock pin is wired active-high.
+
+config DOCK_STATE_STABLE_S
+    int "Dock GPIO stable time before LED/state change (seconds)"
+    default 8
+    depends on !CHRSTS_STAT_ACTIVITY
+    help
+      Legacy: chrsts GPIO must remain unchanged this many dock-poll periods before
+      on_dock flips. Unused when CHRSTS_STAT_ACTIVITY is enabled.
+
+config DOCK_GPIO_MISMATCH_VOTES
+    int "Consecutive chrsts mismatches before debounce resets"
+    default 3
+    depends on !CHRSTS_STAT_ACTIVITY
+    help
+      Legacy: consecutive dock-poll samples that disagree with the stable level.
+      Unused when CHRSTS_STAT_ACTIVITY is enabled.
+
+config WORN_OFF_DOCK_SUSTAIN_S
+    int "Off-dock worn latch sustain (seconds)"
+    default 120
+    help
+      When not on the charger, die temperature must remain above the worn latch
+      threshold for this many consecutive seconds before worn=1 is set. Prevents
+      bench BLE/probe die heat from falsely latching worn off-body. Set 0 to latch
+      immediately when temperature exceeds the threshold (legacy behavior).
+
 module = APP
 module-str = APP
 source "subsys/logging/Kconfig.template.log_config"

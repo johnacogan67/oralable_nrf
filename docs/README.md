@@ -1,13 +1,19 @@
 # Oralable firmware documentation index
 
+**App working diagrams:** [MOBILE_APP_FLOWS.md §2](../../oralable_swift/docs/MOBILE_APP_FLOWS.md#2-how-the-patient-app-works--phase-0)
+
 Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).  
-**Strategy hub:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) (v1.2, June 2026). **Doc pack:** `docs/VERSION` → **1.2.2**.
+**Strategy hub:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) (v1.3, Aug 2026 · ranked table §7.0). **Doc pack:** `docs/VERSION` → **1.2.2**.
+
+**Figures:** [FIGURES.md](./FIGURES.md) · assets in [`figures/`](./figures/) · master [cursor_oralable/docs/FIGURES.md](../../cursor_oralable/docs/FIGURES.md)
+
+**Agent routing:** topic slug `firmware` · [AGENTS.md](../../cursor_oralable/AGENTS.md) · [WORKSPACE_TOPICS.md](../../cursor_oralable/docs/WORKSPACE_TOPICS.md)
 
 ## Product & market
 
 | Document | Description |
 |----------|-------------|
-| [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) | Positioning, competitors, regulatory path, Android, GTM, longitudinal monitoring |
+| [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) | Positioning, competitors, **ranked table §7.0**, regulatory path, Android, GTM, longitudinal monitoring |
 | [Appendix A: Nordic wearables](./ORALABLE_MARKET_LANDSCAPE.md#appendix-a-nordic-wearables-comparison) | MCU tiers, rings/straps, EMG wearables (formerly separate doc) |
 | [Appendix B: PPG sensors](./ORALABLE_MARKET_LANDSCAPE.md#appendix-b-ppg-sensor-comparison) | MAXM86161 vs JCRing, IDO, Polar, Withings, Oura, WHOOP, Wellue |
 
@@ -37,20 +43,18 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 
 | Repo | Docs |
 |------|------|
-| Repo | Docs |
-|------|------|
-| **cursor_oralable** | [ORALABLE_SYSTEM_ARCHITECTURE.md](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md), algorithms — `docs/README.md` |
-| **oralable_swift** | `LAUNCH_READINESS_CHECKLIST.md`, `docs/MOBILE_APP_FLOWS.md`, `CLOUDKIT_PRODUCTION_SETUP.md` |
-| **OralableCore** | BLE models, `ProfessionalHandshakeExport`, algorithms (Swift package) |
+| **cursor_oralable** | [ORALABLE_SYSTEM_ARCHITECTURE.md](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md), algorithms — `docs/README.md` · [FIGURES.md](../../cursor_oralable/docs/FIGURES.md) |
+| **oralable_swift** | `LAUNCH_READINESS_CHECKLIST.md`, [MOBILE_APP_FLOWS.md](../../oralable_swift/docs/MOBILE_APP_FLOWS.md), [FIGURES.md](../../oralable_swift/docs/FIGURES.md) |
+| **OralableCore** | [docs/README.md](../../OralableCore/docs/README.md) · BLE models, handshake export, [FIGURES.md](../../OralableCore/docs/FIGURES.md) |
 
 ## Current shipping snapshot (pcb00003)
 
 | Item | Value |
 |------|--------|
-| Firmware | **1.0.70** pilot ship — [VERSION_ALIGNMENT](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) · [architecture §3](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md#3-validation-status-matrix-where-we-are) |
-| iOS | App **4.3.3** · `FirmwareGate` min **1.0.63** · recommend **1.0.70** |
+| Firmware | **1.0.82** ship — [VERSION_ALIGNMENT](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) · [architecture §3](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md#3-validation-status-matrix-where-we-are) |
+| iOS | App **4.3.3** · `FirmwareGate` min **1.0.63** · recommend **1.0.82** |
 | Board | `pcb00003/nrf52832` (Gen1) · `pcb00003_gen2` stub (Gen2) |
-| First SWD flash | data-room / `artifacts/oralable_1.0.70_pcb00003_merged.hex` |
-| OTA artifact | `artifacts/oralable_1.0.70_pcb00003_dfu_application.zip` |
+| First SWD flash | data-room / `artifacts/oralable_1.0.82_pcb00003_merged.hex` |
+| OTA artifact | `artifacts/oralable_1.0.82_pcb00003_dfu_application.zip` |
 
-*Last updated: July 2026*
+*Last updated: August 2026*

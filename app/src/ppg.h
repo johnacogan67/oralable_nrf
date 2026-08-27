@@ -29,11 +29,36 @@ int ppg_init(void);
 int ppg_start(void);
 
 /**
- * @brief Stop the PPG sensor
- *
- * @return int 0 on success, negative error code on failure
+ * @brief Stop PPG FIFO streaming (disable interrupt) but keep the sensor powered
+ *        so battery-indicator LEDs keep working.
+ */
+int ppg_stop_streaming(void);
+
+/**
+ * @brief Full PPG shutdown (LEDs off, power-save). Use only when powering down sensing.
  */
 int ppg_stop(void);
+
+/**
+ * @brief Ensure MAXM86161 is awake so LED pulse-amplitude writes are visible.
+ */
+int ppg_ensure_awake(void);
+
+/**
+ * @brief Wake the AFE for status-LED PA writes, then disable FIFO IRQ.
+ *        Collection stays off until ppg_start().
+ */
+int ppg_ensure_awake_status_leds(void);
+
+/**
+ * @brief Read PPG FIFO once and notify if notifications are enabled.
+ *
+ * Used as a poll fallback when the MAXM86161 interrupt does not fire.
+ */
+void ppg_poll_once(void);
+
+/** @brief Start or stop the periodic PPG poll fallback (500 ms). */
+void ppg_set_notify_poll(bool enabled);
 
 /**
  * @brief Read a register from the PPG sensor and report over BLE

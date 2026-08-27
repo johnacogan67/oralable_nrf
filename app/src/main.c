@@ -6,6 +6,8 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/sensor.h>
+#include <zephyr/sys/atomic.h>
+#include <zephyr/sys/reboot.h>
 
 #include <app_version.h>
 
@@ -14,6 +16,7 @@
 #include "acc.h"
 #include "battery.h"
 #include "battery_led_indicator.h"
+#include "charge_detector.h"
 #include "tgm_service.h"
 
 #include <zephyr/logging/log.h>
@@ -22,22 +25,31 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 #define GPIO_NODE DT_NODELABEL(gpio0)
 #define SENS_ENABLE_PIN 8
 
-// Device temperature thresholds, with hysteresis
-#define DEVICE_WORN_TEMPERATURE_THRESHOLD 2550
-#define DEVICE_NOT_WORN_TEMPERATURE_THRESHOLD 2450
-
 /** Dim green-only PPG during off-body connect probe (see CONFIG_TGM_CONNECT_PROBE_DURATION_S). */
 #define CONNECT_PROBE_GREEN_PA 5
 
+/** Remapped soft floor (%): stop PPG/ACC; keep MCU, BLE, and charge. */
+#define LOW_BATTERY_BLE_RESCUE_PCT 5
+
+/** Soft floor (mV) = remapped 0% / CG320B_VMIN — not chemical empty (~3.0 V). */
+#define LOW_BATTERY_BLE_RESCUE_MV 3610
+
+/** Below this, Protocol A uses dim red/IR so a 6 min session can finish. */
+#define PROTOCOL_A_DIM_LED_MV 3900
+#define WORN_LED_RED_FULL 32
+#define WORN_LED_IR_FULL 128
+#define WORN_LED_RED_DIM 16
+#define WORN_LED_IR_DIM 64
+
 enum device_state_t
 {
-	DEVICE_STATE_NOT_WORN_NOT_CHARGING,
-	DEVICE_STATE_NOT_WORN_CHARGING,
-	DEVICE_STATE_WORN,
+	DEVICE_STATE_NOT_WORN_OFF_DOCK = 0,
+	DEVICE_STATE_NOT_WORN_ON_DOCK = 1,
+	DEVICE_STATE_WORN = 2,
 	DEVICE_STATE_INIT,
 };
 
-static volatile bool charging = false;
+static volatile bool on_dock = false;
 static volatile bool worn = false;
 
 static const struct device *gpio = DEVICE_DT_GET(GPIO_NODE);
@@ -47,50 +59,582 @@ static const struct gpio_dt_spec chrsts_gpio = GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(z
 static struct gpio_callback chrsts_cb;
 
 static struct k_work_delayable temperature_work;
+#if !IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+static struct k_work_delayable chrsts_debounce_work;
+#endif
 static uint16_t temp_measurement_interval_s = CONFIG_TEMPERATURE_MEASUREMENT_INTERVAL;
-static struct charging_work_t
-{
-	struct k_work work;
-	bool charging_new_state;
-} charging_work;
+static uint16_t off_dock_hot_sustain_s = 0;
 
 static enum device_state_t device_state = DEVICE_STATE_INIT;
+static bool floor_sensors_off;
+
+static bool dock_raw;
+#if !IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+static uint8_t dock_raw_stable_s;
+static uint8_t dock_mismatch_votes;
+#endif
+
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+/** LTC4124 STAT: blink = charging, steady assert = taper, steady inactive = undock. */
+enum chrsts_stat_phase {
+	STAT_PHASE_OFF = 0,
+	STAT_PHASE_CHARGING,
+	STAT_PHASE_TAPER,
+};
+
+static atomic_t chrsts_edge_count;
+static enum chrsts_stat_phase stat_phase = STAT_PHASE_OFF;
+static uint8_t stat_assert_hold_s;
+static uint8_t stat_inactive_hold_s;
+#endif
+
+/** Below this voltage, never drive solid (full) battery LEDs — weak-cell ADC reads high. */
+#define BATTERY_LED_SOLID_MIN_MV 3900
+
+static bool chrsts_gpio_active(void);
+static bool chrsts_read_on_dock_majority(void);
+#if !IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+static void feed_dock_gpio(bool gpio_on_dock);
+#endif
+static void publish_status(void);
+static int update_state(bool on_dock_new_state, bool worn_new_state);
+static void chrsts_log_snapshot(const char *tag, bool majority_on_dock);
+static bool user_mode_overrides_auto(void);
+static void user_mode_apply(void);
+static void user_mode_changed_cb(void);
+static void ppg_apply_off_body_leds(void);
+static void apply_worn_sensing_leds(void);
+static void sync_off_body_sensors(void);
+static bool status_charge_active_effective(void);
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+static void chrsts_process_stat_activity(void);
+#endif
+
+static void sync_off_body_sensors(void)
+{
+	if (ble_is_connected() || tgm_service_connect_probe_active())
+	{
+		return;
+	}
+
+	(void)acc_stop();
+}
+
+static bool status_charge_active_effective(void)
+{
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+	const bool stat_charging = (stat_phase == STAT_PHASE_CHARGING);
+
+	if (user_mode_overrides_auto()) {
+		/* Manual mode 1: mV trend and/or STAT blink. */
+		return on_dock && (charge_detector_is_active() || stat_charging);
+	}
+
+	return on_dock && stat_charging;
+#else
+	return on_dock && charge_detector_is_active();
+#endif
+}
 
 static void apply_battery_leds(void)
 {
-	uint8_t battery_pct = battery_voltage_to_percent(battery_get_last_measurement());
-	battery_led_indicator_apply(charging, worn, battery_pct);
+	int32_t mv;
+	uint8_t battery_pct;
+
+	if (ble_is_connected())
+	{
+		return;
+	}
+
+	/* Kill leftover worn red/IR before status green (or dark). */
+	(void)ppg_set_led_pa(PPG_LED_RED, 0);
+	(void)ppg_set_led_pa(PPG_LED_IR, 0);
+
+	mv = battery_get_last_measurement();
+	battery_pct = battery_voltage_to_percent(mv);
+
+	if (mv < BATTERY_LED_SOLID_MIN_MV &&
+	    battery_pct > BATTERY_LED_FULL_THRESHOLD_PCT)
+	{
+		battery_pct = BATTERY_LED_FULL_THRESHOLD_PCT;
+	}
+
+	/* Disconnected: status LEDs even if worn is still latched (no PPG).
+	 * STAT charging/taper counts as on-pad so leftover Dual A mode 3
+	 * cannot hide the charge light.
+	 */
+	bool led_on_pad = on_dock;
+
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+	if (stat_phase == STAT_PHASE_CHARGING || stat_phase == STAT_PHASE_TAPER) {
+		led_on_pad = true;
+	}
+#endif
+
+	battery_led_indicator_apply(led_on_pad, false, battery_pct, mv,
+				    status_charge_active_effective());
+}
+
+static bool user_mode_overrides_auto(void)
+{
+	return tgm_service_get_user_device_mode() != 0U;
+}
+
+static void user_mode_apply(void)
+{
+	const uint8_t mode = tgm_service_get_user_device_mode();
+	bool target_on_dock;
+	bool target_worn;
+
+	switch (mode) {
+	case 1U:
+		target_on_dock = true;
+		target_worn = false;
+		break;
+	case 2U:
+		target_on_dock = false;
+		target_worn = false;
+		break;
+	case 3U:
+		target_on_dock = false;
+		target_worn = true;
+		if (battery_below_soft_floor()) {
+			const int32_t mv = battery_get_last_measurement();
+
+			LOG_WRN("Mode 3 refused: soft floor %dmV gauge=%u%%",
+				mv, battery_voltage_to_percent(mv));
+			tgm_service_fw_log_printf(
+				"fw: mode3 refused soft_floor mv=%d", mv);
+			tgm_service_set_user_device_mode(0U);
+			target_worn = false;
+		}
+		break;
+	default:
+		return;
+	}
+
+	LOG_INF("User device mode %u -> on_dock=%d worn=%d",
+		tgm_service_get_user_device_mode(), target_on_dock, target_worn);
+	update_state(target_on_dock, target_worn);
+}
+
+static void user_mode_changed_cb(void)
+{
+	user_mode_apply();
+}
+
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+/**
+ * LTC4124 STAT: blink (edges) = charging; steady assert = taper; steady inactive = undock.
+ * Replaces legacy "stable GPIO level" debounce that never latched during blink.
+ */
+static void chrsts_process_stat_activity(void)
+{
+	const unsigned int edges = (unsigned int)atomic_set(&chrsts_edge_count, 0);
+	const bool asserted = chrsts_gpio_active();
+	const enum chrsts_stat_phase prev = stat_phase;
+	const bool charge_was = (prev == STAT_PHASE_CHARGING);
+	bool want_on_dock = on_dock;
+	int32_t mv = battery_get_last_measurement();
+
+	if (user_mode_overrides_auto()) {
+		const bool charge_det_was = charge_detector_is_active();
+		const bool charge_det_now = charge_detector_update(mv, on_dock);
+
+		/* Still track STAT phase so mode 1 can OR blink with mV rise. */
+		if (edges >= (unsigned int)CONFIG_CHRSTS_BLINK_EDGE_MIN ||
+		    (edges > 0U && stat_phase == STAT_PHASE_CHARGING)) {
+			stat_phase = STAT_PHASE_CHARGING;
+			stat_assert_hold_s = 0;
+			stat_inactive_hold_s = 0;
+		} else if (asserted) {
+			stat_inactive_hold_s = 0;
+			if (stat_assert_hold_s < UINT8_MAX) {
+				stat_assert_hold_s++;
+			}
+			if (stat_assert_hold_s >= (uint8_t)CONFIG_CHRSTS_TAPER_HOLD_S) {
+				stat_phase = STAT_PHASE_TAPER;
+			}
+		} else {
+			stat_assert_hold_s = 0;
+			if (stat_inactive_hold_s < UINT8_MAX) {
+				stat_inactive_hold_s++;
+			}
+			if (stat_inactive_hold_s >= (uint8_t)CONFIG_CHRSTS_UNDOCK_HOLD_S) {
+				stat_phase = STAT_PHASE_OFF;
+			}
+		}
+
+		if (charge_det_now != charge_det_was ||
+		    (stat_phase == STAT_PHASE_CHARGING) != charge_was) {
+			LOG_INF("charge_active user_mode det=%d stat=%d mv=%d on_dock=%d",
+				charge_det_now, stat_phase == STAT_PHASE_CHARGING, mv,
+				on_dock);
+			tgm_service_fw_log_printf(
+				"fw: charge_active um det=%d st=%d mv=%d on=%d",
+				charge_det_now, stat_phase == STAT_PHASE_CHARGING, mv,
+				on_dock);
+			publish_status();
+		}
+
+		/* Pad wins over leftover Dual A / nRF Connect mode 3 (worn)
+		 * only when no live PPG/ACC CCC. A Mac Protocol A / Dual A
+		 * session keeps mode 3 even if STAT still looks on-pad.
+		 * Mode 1 (force charger) stays as written when STAT is off.
+		 */
+		const bool stat_on_pad = (stat_phase == STAT_PHASE_CHARGING ||
+					  stat_phase == STAT_PHASE_TAPER);
+		if (stat_on_pad && !tgm_service_sensor_notify_enabled() &&
+		    !tgm_service_mode3_pad_grace_active()) {
+			if (tgm_service_get_user_device_mode() == 3U) {
+				tgm_service_set_user_device_mode(0U);
+			}
+			if (!on_dock || worn) {
+				LOG_INF("STAT on-pad wins over user mode — on_dock=1 worn=0");
+				update_state(true, false);
+			}
+		}
+		return;
+	}
+
+	(void)charge_detector_update(mv, on_dock);
+
+	if (edges >= (unsigned int)CONFIG_CHRSTS_BLINK_EDGE_MIN ||
+	    (edges > 0U && stat_phase == STAT_PHASE_CHARGING)) {
+		stat_phase = STAT_PHASE_CHARGING;
+		stat_assert_hold_s = 0;
+		stat_inactive_hold_s = 0;
+		want_on_dock = true;
+		dock_raw = true;
+	} else if (asserted) {
+		stat_inactive_hold_s = 0;
+		if (stat_assert_hold_s < UINT8_MAX) {
+			stat_assert_hold_s++;
+		}
+		if (stat_phase == STAT_PHASE_CHARGING) {
+			want_on_dock = true;
+			dock_raw = true;
+			if (stat_assert_hold_s >= (uint8_t)CONFIG_CHRSTS_TAPER_HOLD_S) {
+				stat_phase = STAT_PHASE_TAPER;
+			}
+		} else if (stat_assert_hold_s >= (uint8_t)CONFIG_CHRSTS_TAPER_HOLD_S) {
+			stat_phase = STAT_PHASE_TAPER;
+			want_on_dock = true;
+			dock_raw = true;
+		}
+	} else {
+		stat_assert_hold_s = 0;
+		if (stat_inactive_hold_s < UINT8_MAX) {
+			stat_inactive_hold_s++;
+		}
+		if (stat_inactive_hold_s >= (uint8_t)CONFIG_CHRSTS_UNDOCK_HOLD_S) {
+			stat_phase = STAT_PHASE_OFF;
+			want_on_dock = false;
+			dock_raw = false;
+		}
+	}
+
+	if (prev != stat_phase) {
+		LOG_INF("chrsts phase %d -> %d edges=%u assert=%d on_dock=%d mv=%d",
+			(int)prev, (int)stat_phase, edges, asserted, want_on_dock, mv);
+		tgm_service_fw_log_printf(
+			"fw: chrsts phase %d->%d e=%u a=%d on=%d mv=%d",
+			(int)prev, (int)stat_phase, edges, asserted, want_on_dock, mv);
+	}
+
+	if (want_on_dock != on_dock || (want_on_dock && worn)) {
+		if (want_on_dock && worn) {
+			LOG_WRN("STAT on-pad with worn=1 — clearing worn");
+		}
+		chrsts_log_snapshot(want_on_dock ? "stat_on" : "stat_off", want_on_dock);
+		update_state(want_on_dock, want_on_dock ? false : worn);
+	} else if (prev != stat_phase) {
+		/* Same dock/worn; charge_active (blink↔taper) changed. */
+		publish_status();
+		apply_battery_leds();
+	}
+}
+#else /* !CONFIG_CHRSTS_STAT_ACTIVITY — legacy stable-level debounce */
+static void feed_dock_gpio(bool gpio_on_dock)
+{
+	int32_t mv = battery_get_last_measurement();
+
+	if (user_mode_overrides_auto()) {
+		const bool charge_was = charge_detector_is_active();
+		const bool charge_now = charge_detector_update(mv, on_dock);
+
+		if (charge_now != charge_was) {
+			LOG_INF("charge_active %d -> %d (mv=%d on_dock=%d user_mode)",
+				charge_was, charge_now, mv, on_dock);
+			tgm_service_fw_log_printf("fw: charge_active %d mv=%d on=%d",
+						  charge_now, mv, on_dock);
+			publish_status();
+		}
+		return;
+	}
+
+	const bool charge_was = charge_detector_is_active();
+	const bool charge_now = charge_detector_update(mv, gpio_on_dock);
+
+	if (charge_now != charge_was)
+	{
+		LOG_INF("charge_active %d -> %d (mv=%d on_dock=%d)",
+			charge_was, charge_now, mv, gpio_on_dock);
+		tgm_service_fw_log_printf("fw: charge_active %d mv=%d on=%d",
+					  charge_now, mv, gpio_on_dock);
+	}
+
+	if (gpio_on_dock != dock_raw)
+	{
+		if (dock_mismatch_votes == 0)
+		{
+			chrsts_log_snapshot(gpio_on_dock ? "cand_on" : "cand_off", gpio_on_dock);
+		}
+
+		if (dock_mismatch_votes < UINT8_MAX)
+		{
+			dock_mismatch_votes++;
+		}
+
+		if (CONFIG_DOCK_GPIO_MISMATCH_VOTES > 0 &&
+		    dock_mismatch_votes < CONFIG_DOCK_GPIO_MISMATCH_VOTES)
+		{
+			LOG_DBG("chrsts debounce: vote %u/%u (cand=%d raw=%d)",
+				dock_mismatch_votes, CONFIG_DOCK_GPIO_MISMATCH_VOTES,
+				gpio_on_dock, dock_raw);
+			return;
+		}
+
+		dock_raw = gpio_on_dock;
+		dock_mismatch_votes = 0;
+		dock_raw_stable_s = 0;
+		chrsts_log_snapshot(dock_raw ? "raw_on" : "raw_off", gpio_on_dock);
+		return;
+	}
+
+	dock_mismatch_votes = 0;
+
+	if (dock_raw_stable_s < UINT8_MAX)
+	{
+		dock_raw_stable_s++;
+	}
+
+	if (CONFIG_DOCK_STATE_STABLE_S > 0 &&
+	    dock_raw_stable_s < CONFIG_DOCK_STATE_STABLE_S)
+	{
+		if (dock_raw_stable_s == 1U || dock_raw_stable_s == CONFIG_DOCK_STATE_STABLE_S)
+		{
+			LOG_DBG("chrsts stable countdown: %u/%u raw=%d on=%d",
+				dock_raw_stable_s, CONFIG_DOCK_STATE_STABLE_S,
+				dock_raw, on_dock);
+		}
+		return;
+	}
+
+	if (dock_raw == on_dock)
+	{
+		return;
+	}
+
+	if (dock_raw && worn)
+	{
+		LOG_WRN("Dock stable on pad with worn=1 — clearing worn");
+		update_state(dock_raw, false);
+		return;
+	}
+
+	chrsts_log_snapshot(dock_raw ? "stable_on" : "stable_off", gpio_on_dock);
+	update_state(dock_raw, worn);
+}
+#endif /* CONFIG_CHRSTS_STAT_ACTIVITY */
+
+static void dock_poll_and_refresh(void)
+{
+	static uint8_t heartbeat_polls;
+	bool majority_on_dock = chrsts_read_on_dock_majority();
+
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+	chrsts_process_stat_activity();
+#else
+	feed_dock_gpio(majority_on_dock);
+#endif
+
+	if (++heartbeat_polls >= 5U)
+	{
+		heartbeat_polls = 0U;
+		chrsts_log_snapshot("hb", majority_on_dock);
+	}
+
+	if ((!worn || on_dock) && !tgm_service_connect_probe_active())
+	{
+		apply_battery_leds();
+	}
 }
 
 static void publish_status(void)
 {
 	uint8_t battery_pct = battery_voltage_to_percent(battery_get_last_measurement());
-	tgm_service_send_status_notify(charging, worn, device_state, battery_pct);
+	bool status_on_dock = on_dock;
+	bool status_worn = on_dock ? false : worn;
+	bool status_charge_active = status_charge_active_effective();
+	uint8_t status_state;
+
+	if (status_on_dock)
+	{
+		status_worn = false;
+		status_state = DEVICE_STATE_NOT_WORN_ON_DOCK;
+	}
+	else if (status_worn)
+	{
+		status_state = DEVICE_STATE_WORN;
+	}
+	else
+	{
+		status_state = DEVICE_STATE_NOT_WORN_OFF_DOCK;
+	}
+
+	tgm_service_send_status_notify(status_on_dock, status_worn, status_state,
+				       battery_pct, status_charge_active);
 }
 
-static int update_state(bool charging_new_state, bool worn_new_state)
+static int16_t read_die_temp_centi(void)
 {
-	if (charging_new_state == charging && worn_new_state == worn)
+	int err;
+	struct sensor_value temp_value;
+
+	err = sensor_sample_fetch(temp_sensor);
+	if (err)
+	{
+		return INT16_MIN;
+	}
+
+	err = sensor_channel_get(temp_sensor, SENSOR_CHAN_DIE_TEMP, &temp_value);
+	if (err)
+	{
+		return INT16_MIN;
+	}
+
+	return temp_value.val1 * 100 + temp_value.val2 / 10000;
+}
+
+static int chrsts_pin_physical(void)
+{
+	return gpio_pin_get(gpio, chrsts_gpio.pin);
+}
+
+static void chrsts_log_snapshot(const char *tag, bool majority_on_dock)
+{
+	const int phy = chrsts_pin_physical();
+	const int dt = gpio_pin_get_dt(&chrsts_gpio);
+	const bool active = chrsts_gpio_active();
+	const int32_t mv = battery_get_last_measurement();
+
+	tgm_service_refresh_chrsts_bench();
+
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+	LOG_INF("chrsts %s: phy=%d dt=%d active=%d maj=%d invert=%d dock_raw=%d on_dock=%d "
+		"phase=%d edges=%ld assert_h=%u inact_h=%u charge=%d mv=%d",
+		tag, phy, dt, active, majority_on_dock,
+		IS_ENABLED(CONFIG_CHRSTS_INVERT) ? 1 : 0,
+		dock_raw, on_dock, (int)stat_phase, (long)atomic_get(&chrsts_edge_count),
+		stat_assert_hold_s, stat_inactive_hold_s,
+		status_charge_active_effective() ? 1 : 0, mv);
+
+	tgm_service_fw_log_printf(
+		"fw: chrsts %s phy=%d dt=%d act=%d maj=%d inv=%d raw=%d on=%d ph=%d e=%ld ah=%u ih=%u ch=%d mv=%d",
+		tag, phy, dt, active, majority_on_dock,
+		IS_ENABLED(CONFIG_CHRSTS_INVERT) ? 1 : 0,
+		dock_raw, on_dock, (int)stat_phase, (long)atomic_get(&chrsts_edge_count),
+		stat_assert_hold_s, stat_inactive_hold_s,
+		status_charge_active_effective() ? 1 : 0, mv);
+#else
+	LOG_INF("chrsts %s: phy=%d dt=%d active=%d maj=%d invert=%d dock_raw=%d on_dock=%d "
+		"stable=%u/%u mismatch=%u mv=%d",
+		tag, phy, dt, active, majority_on_dock,
+		IS_ENABLED(CONFIG_CHRSTS_INVERT) ? 1 : 0,
+		dock_raw, on_dock, dock_raw_stable_s, CONFIG_DOCK_STATE_STABLE_S,
+		dock_mismatch_votes, mv);
+
+	tgm_service_fw_log_printf(
+		"fw: chrsts %s phy=%d dt=%d act=%d maj=%d inv=%d raw=%d on=%d stab=%u/%u mis=%u mv=%d",
+		tag, phy, dt, active, majority_on_dock,
+		IS_ENABLED(CONFIG_CHRSTS_INVERT) ? 1 : 0,
+		dock_raw, on_dock, dock_raw_stable_s, CONFIG_DOCK_STATE_STABLE_S,
+		dock_mismatch_votes, mv);
+#endif
+}
+
+static bool chrsts_gpio_active(void)
+{
+	int level = gpio_pin_get_dt(&chrsts_gpio);
+
+#if IS_ENABLED(CONFIG_CHRSTS_INVERT)
+	return level == 0;
+#else
+	return level != 0;
+#endif
+}
+
+static bool chrsts_read_on_dock_majority(void)
+{
+	int votes = 0;
+	int samples = CONFIG_CHRSTS_SAMPLE_COUNT;
+	int majority = (samples / 2) + 1;
+
+	if (samples <= 0)
+	{
+		return chrsts_gpio_active();
+	}
+
+	for (int i = 0; i < samples; i++)
+	{
+		if (chrsts_gpio_active())
+		{
+			votes++;
+		}
+
+		if (i + 1 < samples)
+		{
+			k_sleep(K_MSEC(CONFIG_CHRSTS_SAMPLE_INTERVAL_MS));
+		}
+	}
+
+	return votes >= majority;
+}
+
+static void reset_off_dock_hot_sustain(void)
+{
+	off_dock_hot_sustain_s = 0;
+}
+
+static int update_state(bool on_dock_new_state, bool worn_new_state)
+{
+	if (on_dock_new_state)
+	{
+		worn_new_state = false;
+		reset_off_dock_hot_sustain();
+	}
+
+	if (on_dock_new_state == on_dock && worn_new_state == worn)
 	{
 		return 0;
 	}
 
-	if (charging_new_state != charging)
+	if (on_dock_new_state != on_dock)
 	{
-		charging = charging_new_state;
+		on_dock = on_dock_new_state;
 
-		if (charging)
+		if (on_dock)
 		{
-			device_state = worn ? DEVICE_STATE_WORN : DEVICE_STATE_NOT_WORN_CHARGING;
-		}
-		else if (worn)
-		{
-			device_state = DEVICE_STATE_WORN;
+			charge_detector_reset();
 		}
 		else
 		{
-			device_state = DEVICE_STATE_NOT_WORN_NOT_CHARGING;
+			reset_off_dock_hot_sustain();
+			charge_detector_reset();
 		}
+
+		(void)charge_detector_update(battery_get_last_measurement(), on_dock);
 	}
 
 	if (worn_new_state != worn)
@@ -99,33 +643,10 @@ static int update_state(bool charging_new_state, bool worn_new_state)
 
 		if (worn)
 		{
-			int err;
-
 			device_state = DEVICE_STATE_WORN;
-			apply_battery_leds();
-
-			err = ppg_set_led_pa(PPG_LED_GREEN, 0);
-			if (err)
-			{
-				LOG_ERR("Failed to disable green LED for worn mode");
-				return err;
-			}
-
-			err = ppg_set_led_pa(PPG_LED_RED, 32);
-			if (err)
-			{
-				LOG_ERR("Failed to set PPG LED PA for LED %d", PPG_LED_RED);
-				return err;
-			}
-
-			err = ppg_set_led_pa(PPG_LED_IR, 128);
-			if (err)
-			{
-				LOG_ERR("Failed to set PPG LED PA for LED %d", PPG_LED_IR);
-				return err;
-			}
+			/* Sensing LEDs wait for PPG CCC (ppg_stream_start_cb). */
 		}
-		else
+		else if (!ble_is_connected() && !tgm_service_connect_probe_active())
 		{
 			int err;
 
@@ -142,27 +663,49 @@ static int update_state(bool charging_new_state, bool worn_new_state)
 				LOG_ERR("Failed to disable PPG LED PA for LED %d", PPG_LED_IR);
 				return err;
 			}
-
-			device_state = charging ? DEVICE_STATE_NOT_WORN_CHARGING
-						: DEVICE_STATE_NOT_WORN_NOT_CHARGING;
-			apply_battery_leds();
 		}
+	}
+
+	if (on_dock)
+	{
+		if (worn)
+		{
+			LOG_WRN("On-dock invariant: forcing worn=0");
+			worn = false;
+			ppg_apply_off_body_leds();
+		}
+
+		device_state = DEVICE_STATE_NOT_WORN_ON_DOCK;
+	}
+	else if (worn)
+	{
+		device_state = DEVICE_STATE_WORN;
+	}
+	else if (device_state == DEVICE_STATE_INIT)
+	{
+		device_state = DEVICE_STATE_NOT_WORN_OFF_DOCK;
 	}
 	else if (!worn)
 	{
-		apply_battery_leds();
+		device_state = DEVICE_STATE_NOT_WORN_OFF_DOCK;
 	}
 
-	if (device_state == DEVICE_STATE_INIT)
-	{
-		device_state = charging ? DEVICE_STATE_NOT_WORN_CHARGING
-					: DEVICE_STATE_NOT_WORN_NOT_CHARGING;
-		apply_battery_leds();
-	}
-
-	LOG_INF("Device state changed to %d (charging=%d worn=%d)", device_state, charging, worn);
+	LOG_INF("Device state %d (on_dock=%d worn=%d charge_active=%d)",
+		device_state, on_dock, worn, charge_detector_is_active());
 
 	tgm_service_set_device_worn(worn);
+	tgm_service_set_on_dock(on_dock);
+	sync_off_body_sensors();
+
+	if (ble_is_connected())
+	{
+		battery_led_indicator_suspend();
+	}
+	else
+	{
+		apply_battery_leds();
+	}
+
 	publish_status();
 
 	return 0;
@@ -170,13 +713,44 @@ static int update_state(bool charging_new_state, bool worn_new_state)
 
 static void battery_measurement_ready(int32_t battery_mv)
 {
-	ARG_UNUSED(battery_mv);
+	uint8_t battery_pct = battery_voltage_to_percent(battery_mv);
+	const bool low_for_ble = (battery_pct < LOW_BATTERY_BLE_RESCUE_PCT) ||
+				 (battery_mv < LOW_BATTERY_BLE_RESCUE_MV);
 
-	if (!worn)
+	(void)charge_detector_update(battery_mv, on_dock);
+
+	if (low_for_ble)
 	{
-		apply_battery_leds();
+		if (!floor_sensors_off) {
+			LOG_WRN("Soft floor (remapped 0%%): %dmV gauge=%u%% chem=%u%% — PPG/ACC off, MCU stays up",
+				battery_mv, battery_pct,
+				battery_voltage_to_chemistry_percent(battery_mv));
+			tgm_service_fw_log_printf("fw: floor sensors off mv=%d pct=%u",
+						  battery_mv, battery_pct);
+			tgm_service_clear_optical_leds();
+			floor_sensors_off = true;
+		}
+		if (tgm_service_get_user_device_mode() == 3U &&
+		    !tgm_service_mode3_soft_floor_hold_active()) {
+			tgm_service_set_user_device_mode(0U);
+		}
+		if (worn && !tgm_service_mode3_soft_floor_hold_active())
+		{
+			update_state(on_dock, false);
+		}
+		if (!ble_is_connected() && !tgm_service_connect_probe_active())
+		{
+			apply_battery_leds();
+		}
+		return;
 	}
 
+	if (floor_sensors_off) {
+		floor_sensors_off = false;
+		tgm_service_fw_log_printf("fw: floor sensors resume mv=%d pct=%u",
+					  battery_mv, battery_pct);
+		tgm_service_try_start_ppg_acc();
+	}
 	publish_status();
 }
 
@@ -195,6 +769,9 @@ static void connect_probe_begin_cb(void)
 	}
 
 	LOG_INF("Connect probe: dim green PPG LED (PA=%d)", CONNECT_PROBE_GREEN_PA);
+	battery_led_indicator_suspend();
+	sync_off_body_sensors();
+	(void)ppg_ensure_awake();
 	(void)ppg_set_led_pa(PPG_LED_RED, 0);
 	(void)ppg_set_led_pa(PPG_LED_IR, 0);
 	(void)ppg_set_led_pa(PPG_LED_GREEN, CONNECT_PROBE_GREEN_PA);
@@ -202,14 +779,13 @@ static void connect_probe_begin_cb(void)
 
 static void connect_probe_end_cb(void)
 {
-	if (worn)
-	{
-		return;
-	}
-
 	LOG_INF("Connect probe: PPG LEDs off");
-	ppg_apply_off_body_leds();
-	apply_battery_leds();
+	sync_off_body_sensors();
+
+	if (!worn)
+	{
+		apply_battery_leds();
+	}
 }
 
 static void diagnostic_snapshot_cb(void)
@@ -219,53 +795,91 @@ static void diagnostic_snapshot_cb(void)
 
 static void ble_link_connected_cb(void)
 {
-	int err;
-	struct sensor_value temp_value;
-	int16_t centitemp = 0;
+	int16_t centitemp = read_die_temp_centi();
 
-	err = sensor_sample_fetch(temp_sensor);
-	if (!err)
-	{
-		err = sensor_channel_get(temp_sensor, SENSOR_CHAN_DIE_TEMP, &temp_value);
-		if (!err)
-		{
-			centitemp = temp_value.val1 * 100 + temp_value.val2 / 10000;
-		}
-	}
-
-	LOG_INF("BLE link up: charging=%d worn=%d state=%d bat=%d%% die=%d.%02d C probe=%ds",
-		charging, worn, device_state,
+	LOG_INF("BLE link up: on_dock=%d worn=%d state=%d bat=%d%% charge=%d die=%d.%02d C probe=%ds",
+		on_dock, worn, device_state,
 		battery_voltage_to_percent(battery_get_last_measurement()),
-		centitemp / 100, centitemp % 100,
+		status_charge_active_effective() ? 1 : 0,
+		centitemp >= 0 ? centitemp / 100 : 0,
+		centitemp >= 0 ? centitemp % 100 : 0,
 		CONFIG_TGM_CONNECT_PROBE_DURATION_S);
 
+	battery_led_indicator_suspend();
+	ppg_apply_off_body_leds();
+
 	publish_status();
+	chrsts_log_snapshot("link", chrsts_read_on_dock_majority());
+}
+
+static void apply_worn_sensing_leds(void)
+{
+	const int32_t cached_mv = battery_get_last_measurement();
+	bool dim = (cached_mv > 0 && cached_mv < PROTOCOL_A_DIM_LED_MV);
+	uint8_t red_pa = dim ? WORN_LED_RED_DIM : WORN_LED_RED_FULL;
+	uint8_t ir_pa = dim ? WORN_LED_IR_DIM : WORN_LED_IR_FULL;
+
+	(void)ppg_ensure_awake();
+	(void)ppg_set_led_pa(PPG_LED_GREEN, 0);
+	(void)ppg_set_led_pa(PPG_LED_RED, red_pa);
+	(void)ppg_set_led_pa(PPG_LED_IR, ir_pa);
+
+	const int32_t under_mv = battery_read_now_mv();
+
+	if (under_mv > 0)
+	{
+		tgm_service_fw_log_printf("fw: bat under_load mv=%d cached=%d dim=%u",
+					  under_mv, cached_mv, dim ? 1u : 0u);
+		if (under_mv < PROTOCOL_A_DIM_LED_MV && !dim)
+		{
+			dim = true;
+			red_pa = WORN_LED_RED_DIM;
+			ir_pa = WORN_LED_IR_DIM;
+			(void)ppg_set_led_pa(PPG_LED_RED, red_pa);
+			(void)ppg_set_led_pa(PPG_LED_IR, ir_pa);
+			tgm_service_fw_log_printf("fw: bat sag dim leds ir=%u red=%u",
+						  ir_pa, red_pa);
+		}
+	}
+	else
+	{
+		tgm_service_fw_log_printf("fw: bat under_load mv=0 cached=%d dim=%u",
+					  cached_mv, dim ? 1u : 0u);
+	}
+
+	LOG_INF("Worn sensing LEDs red=%u ir=%u cached=%dmV under=%dmV",
+		red_pa, ir_pa, cached_mv, under_mv);
 }
 
 static void ble_link_disconnected_cb(void)
 {
-	if (!worn)
-	{
-		ppg_apply_off_body_leds();
-		apply_battery_leds();
-	}
+	reset_off_dock_hot_sustain();
+	/* Drop leftover worn PPG red immediately; pad then goes green (never red). */
+	ppg_apply_off_body_leds();
+	apply_battery_leds();
 
-	LOG_INF("BLE link down: charging=%d worn=%d state=%d",
-		charging, worn, device_state);
+	/* Advertising restarts from ble.c .recycled (Nordic NCS ≥ 3.0 pattern). */
+	LOG_INF("BLE link down: on_dock=%d worn=%d state=%d",
+		on_dock, worn, device_state);
 }
 
-static void charging_work_handler(struct k_work *work)
+#if !IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+static void chrsts_debounce_handler(struct k_work *work)
 {
-	struct charging_work_t *charging_work = CONTAINER_OF(work, struct charging_work_t, work);
+	ARG_UNUSED(work);
+	bool majority_on_dock = chrsts_read_on_dock_majority();
 
-	update_state(charging_work->charging_new_state, worn);
+	(void)battery_start_measurement();
+	feed_dock_gpio(majority_on_dock);
+	chrsts_log_snapshot("edge", majority_on_dock);
 }
+#endif
 
 static void temperature_work_handler(struct k_work *work)
 {
 	int err;
 	struct sensor_value temp_value;
-	int16_t centitemp; // Temperature in centi-degrees Celsius
+	int16_t centitemp;
 
 	err = sensor_sample_fetch(temp_sensor);
 	if (err)
@@ -286,18 +900,7 @@ static void temperature_work_handler(struct k_work *work)
 	centitemp = temp_value.val1 * 100 + temp_value.val2 / 10000;
 	LOG_INF("Temperature: %d.%02d C", centitemp / 100, centitemp % 100);
 
-	// Check if the device is worn (temperature > 30C)
-	if (centitemp > DEVICE_WORN_TEMPERATURE_THRESHOLD)
-	{
-		update_state(charging, true);
-	}
-	else if (centitemp < DEVICE_NOT_WORN_TEMPERATURE_THRESHOLD)
-	{
-		update_state(charging, false);
-	}
-
-	/* Off-body: BLE-notify temp during worn or connect probe window. */
-	if (worn || tgm_service_connect_probe_active())
+	if (ble_is_connected() || worn || tgm_service_connect_probe_active())
 	{
 		tgm_service_send_temp_notify(centitemp);
 	}
@@ -319,49 +922,99 @@ int32_t battery_voltage_read(void)
 	return battery_get_last_measurement();
 }
 
+static void boot_apply_led_and_worn_policy(void)
+{
+	worn = false;
+	reset_off_dock_hot_sustain();
+	charge_detector_reset();
+	tgm_service_set_device_worn(false);
+	tgm_service_set_on_dock(on_dock);
+	ppg_apply_off_body_leds();
+
+	device_state = on_dock ? DEVICE_STATE_NOT_WORN_ON_DOCK
+			       : DEVICE_STATE_NOT_WORN_OFF_DOCK;
+	apply_battery_leds();
+}
+
 static void chrsts_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-	int err;
-	uint8_t pin_state;
-	pin_state = gpio_pin_get_dt(&chrsts_gpio);
+	ARG_UNUSED(dev);
+	ARG_UNUSED(cb);
+	ARG_UNUSED(pins);
 
-	if (pin_state == 0)
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+	atomic_inc(&chrsts_edge_count);
+	LOG_DBG("chrsts edge phy=%d dt=%d count=%ld", chrsts_pin_physical(),
+		gpio_pin_get_dt(&chrsts_gpio), (long)atomic_get(&chrsts_edge_count));
+#else
+	LOG_INF("chrsts GPIO edge phy=%d dt=%d", chrsts_pin_physical(),
+		gpio_pin_get_dt(&chrsts_gpio));
+	tgm_service_fw_log_printf("fw: chrsts edge phy=%d dt=%d deb=%dms",
+				  chrsts_pin_physical(), gpio_pin_get_dt(&chrsts_gpio),
+				  CONFIG_CHRSTS_DEBOUNCE_MS);
+
+	(void)k_work_reschedule(&chrsts_debounce_work, K_MSEC(CONFIG_CHRSTS_DEBOUNCE_MS));
+#endif
+}
+
+static void chrsts_bench_fill(struct tgm_chrsts_bench_t *out)
+{
+	bool majority_on_dock = chrsts_read_on_dock_majority();
+	const int phy = chrsts_pin_physical();
+	const int dt = gpio_pin_get_dt(&chrsts_gpio);
+
+	if (!out)
 	{
-		LOG_INF("Chrsts pin is not active, device is not charging");
-
-		charging_work.charging_new_state = false;
-		k_work_submit(&charging_work.work);
-
-		// Toggle the interrupt to notify when the charging state changes to active
-		err = gpio_pin_interrupt_configure(gpio, chrsts_gpio.pin, GPIO_INT_LEVEL_ACTIVE);
-		if (err)
-		{
-			LOG_ERR("Failed to configure chrsts pin interrupt");
-		}
+		return;
 	}
-	else
+
+	out->phy = (uint8_t)((phy < 0) ? 0 : phy);
+	out->dt = (uint8_t)((dt < 0) ? 0 : dt);
+	out->active = chrsts_gpio_active() ? 1U : 0U;
+	out->maj = majority_on_dock ? 1U : 0U;
+	out->dock_raw = dock_raw ? 1U : 0U;
+	out->on_dock = on_dock ? 1U : 0U;
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
 	{
-		LOG_INF("Chrsts pin is active, device is charging");
+		const atomic_val_t edges = atomic_get(&chrsts_edge_count);
 
-		charging_work.charging_new_state = true;
-		k_work_submit(&charging_work.work);
-
-		// Toggle the interrupt to notify when the charging state changes to inactive
-		err = gpio_pin_interrupt_configure(gpio, chrsts_gpio.pin, GPIO_INT_LEVEL_INACTIVE);
-		if (err)
-		{
-			LOG_ERR("Failed to configure chrsts pin interrupt");
-		}
+		out->stable_s = (uint8_t)stat_phase;
+		out->mismatch = (uint8_t)((edges > 255) ? 255 : edges);
 	}
+#else
+	out->stable_s = dock_raw_stable_s;
+	out->mismatch = dock_mismatch_votes;
+#endif
+}
+
+static void ppg_stream_start_cb(void)
+{
+	if (ble_is_connected() || tgm_service_connect_probe_active())
+	{
+		apply_worn_sensing_leds();
+	}
+}
+
+static void ir_pulse_worn_cb(bool pulse)
+{
+	if (user_mode_overrides_auto()) {
+		return;
+	}
+
+	update_state(on_dock, pulse);
 }
 
 struct tgm_service_cb tgm_service_callbacks = {
 	.bat_cb = battery_voltage_read,
 	.link_connected_cb = ble_link_connected_cb,
 	.link_disconnected_cb = ble_link_disconnected_cb,
+	.ppg_stream_start_cb = ppg_stream_start_cb,
 	.probe_begin_cb = connect_probe_begin_cb,
 	.probe_end_cb = connect_probe_end_cb,
 	.diagnostic_snapshot_cb = diagnostic_snapshot_cb,
+	.chrsts_bench_cb = chrsts_bench_fill,
+	.user_mode_changed_cb = user_mode_changed_cb,
+	.ir_pulse_worn_cb = ir_pulse_worn_cb,
 };
 
 int main(void)
@@ -370,17 +1023,12 @@ int main(void)
 
 	printk("TGM Application %s\n", APP_VERSION_STRING);
 
-	// Initialize the gpio port
 	if (!device_is_ready(gpio))
 	{
 		LOG_ERR("GPIO is not ready");
 		return -1;
 	}
 
-	/* CRITICAL: battery boost latch (BATEN / P0.10) must be driven HIGH
-	 * atomically once GPIO is confirmed ready. If this configure step fails,
-	 * the pin can float and battery-only operation may die after a delay.
-	 */
 	err = gpio_pin_configure(gpio, 10, GPIO_OUTPUT_HIGH);
 	if (err)
 	{
@@ -389,7 +1037,6 @@ int main(void)
 	}
 	printk("*** BATTERY POWER ENABLED ON P0.10 ***\n");
 
-	// Initialize the sens_enable pin as output
 	err = gpio_pin_configure(gpio, SENS_ENABLE_PIN, GPIO_OUTPUT_HIGH);
 
 	err = ble_init();
@@ -402,7 +1049,6 @@ int main(void)
 	tgm_service_init(&tgm_service_callbacks);
 	battery_led_indicator_init();
 
-	// Initialize the temperature monitoring
 	k_work_init_delayable(&temperature_work, temperature_work_handler);
 
 	ble_adv_start();
@@ -413,14 +1059,12 @@ int main(void)
 		LOG_ERR("battery_init() returned %d", err);
 	}
 
-	// Start the battery measurement before any of the sensors are started
 	err = battery_start_measurement();
 	if (err)
 	{
 		LOG_ERR("battery_start_measurement() returned %d", err);
 	}
 
-	// Enable the power for the sensors
 	err = gpio_pin_set(gpio, SENS_ENABLE_PIN, 1);
 	if (err)
 	{
@@ -428,7 +1072,6 @@ int main(void)
 		return err;
 	}
 
-	// Wait for the sensor to power up
 	k_sleep(K_MSEC(100));
 
 	err = ppg_init();
@@ -443,7 +1086,6 @@ int main(void)
 		LOG_ERR("acc_init() returned %d", err);
 	}
 
-	// Initialize the chrsts pin as input
 	err = gpio_pin_configure_dt(&chrsts_gpio, GPIO_INPUT);
 	if (err)
 	{
@@ -451,7 +1093,6 @@ int main(void)
 		return err;
 	}
 
-	// Initialize the callback for the chrsts pin
 	gpio_init_callback(&chrsts_cb, chrsts_callback, BIT(chrsts_gpio.pin));
 	err = gpio_add_callback(gpio, &chrsts_cb);
 	if (err)
@@ -460,53 +1101,88 @@ int main(void)
 		return err;
 	}
 
-	k_work_init(&charging_work.work, charging_work_handler);
+#if !IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+	k_work_init_delayable(&chrsts_debounce_work, chrsts_debounce_handler);
+#endif
 
-	charging = (gpio_pin_get_dt(&chrsts_gpio) != 0);
-	LOG_INF("Initial charging state: %s", charging ? "on dock" : "off dock");
+	on_dock = chrsts_read_on_dock_majority();
+	dock_raw = on_dock;
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+	stat_phase = on_dock ? STAT_PHASE_TAPER : STAT_PHASE_OFF;
+	atomic_set(&chrsts_edge_count, 0);
+	stat_assert_hold_s = on_dock ? (uint8_t)CONFIG_CHRSTS_TAPER_HOLD_S : 0;
+	stat_inactive_hold_s = on_dock ? 0 : (uint8_t)CONFIG_CHRSTS_UNDOCK_HOLD_S;
+#else
+	dock_raw_stable_s = CONFIG_DOCK_STATE_STABLE_S;
+#endif
+	chrsts_log_snapshot("boot", on_dock);
 
-	// Track the charging state
-	err = gpio_pin_interrupt_configure(gpio, chrsts_gpio.pin,
-					   charging ? GPIO_INT_LEVEL_INACTIVE
-						    : GPIO_INT_LEVEL_ACTIVE);
+	err = gpio_pin_interrupt_configure(gpio, chrsts_gpio.pin, GPIO_INT_EDGE_BOTH);
 	if (err)
 	{
 		LOG_ERR("Failed to configure chrsts pin interrupt");
 		return err;
 	}
 
-	// Start the sensors
-	err = ppg_start();
-	if (err)
-	{
-		LOG_ERR("Failed to start the PPG sensor with error %d", err);
+	boot_apply_led_and_worn_policy();
+	sync_off_body_sensors();
+
+	k_work_reschedule(&temperature_work, K_SECONDS(temp_measurement_interval_s));
+	LOG_INF("Temperature monitoring started");
+	LOG_INF("=== INITIALIZATION COMPLETE ===");
+
+	dock_poll_and_refresh();
+
+	uint32_t uptime_s = 0;
+	uint8_t dock_poll_s = 0;
+	uint8_t led_refresh_s = 0;
+	uint8_t dock_battery_s = 0;
+	while (1) {
+		(void)gpio_pin_set(gpio, 10, 1);
+		ble_ensure_advertising();
+		if (++dock_poll_s >= 3) {
+			dock_poll_s = 0;
+			dock_poll_and_refresh();
+		}
+
+		if (on_dock) {
+			if (++dock_battery_s >= 60) {
+				dock_battery_s = 0;
+				(void)battery_start_measurement();
+			}
+		} else {
+			dock_battery_s = 0;
+		}
+
+		if (++led_refresh_s >= 2) {
+			led_refresh_s = 0;
+			if (ble_is_connected() &&
+			    tgm_service_ppg_notify_active()) {
+				apply_worn_sensing_leds();
+			} else if (!tgm_service_connect_probe_active()) {
+				if (ble_is_connected() &&
+				    tgm_service_sensor_stream_stale()) {
+					ble_force_recover("led policy stale stream");
+				}
+				if (!tgm_service_ppg_notify_active()) {
+					ppg_apply_off_body_leds();
+				}
+				if (!ble_is_connected()) {
+					apply_battery_leds();
+				}
+			}
+		}
+
+		uptime_s++;
+		const uint16_t reboot_s = tgm_service_get_debug_reboot_interval_s();
+		if (reboot_s > 0 && uptime_s >= reboot_s) {
+			LOG_WRN("Debug reboot after %us (interval %us)", uptime_s, reboot_s);
+			k_sleep(K_MSEC(100));
+			sys_reboot(SYS_REBOOT_WARM);
+		}
+
+		k_sleep(K_SECONDS(1));
 	}
-
-	err = acc_start();
-	if (err)
-	{
-		LOG_ERR("Failed to start the accelerometer sensor with error %d", err);
-	}
-
-	device_state = charging ? DEVICE_STATE_NOT_WORN_CHARGING
-				: DEVICE_STATE_NOT_WORN_NOT_CHARGING;
-	apply_battery_leds();
-
-    // Start the temperature monitoring
-    k_work_reschedule(&temperature_work, K_NO_WAIT);
-    LOG_INF("Temperature monitoring started");
-
-    LOG_INF("=== INITIALIZATION COMPLETE ===");
-    
-    // NEW: Power management loop
-    // Sensors run autonomously via interrupts and send data via BLE
-    // Main loop just needs to stay alive
-    while (1) {
-        /* Defensive re-assert of BATEN latch for battery-only robustness. */
-        (void)gpio_pin_set(gpio, 10, 1);
-        // Sleep to save power - wake every 1 second to maintain BLE connection
-        k_sleep(K_SECONDS(1));
-    }
 
 	return 0;
 }

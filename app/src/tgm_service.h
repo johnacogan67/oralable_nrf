@@ -85,6 +85,28 @@ struct tgm_fw_config_state_t
     uint8_t battery_interval_s;
     uint8_t temp_interval_s;
     uint8_t stream_enable_mask;
+    /** v2 chrsts bench (FW >= 1.0.60); sample fresh on each `00C` read. */
+    uint8_t chrsts_phy;
+    uint8_t chrsts_dt;
+    uint8_t chrsts_active;
+    uint8_t chrsts_maj;
+    uint8_t chrsts_dock_raw;
+    uint8_t chrsts_on_dock;
+    uint8_t chrsts_stable_s;
+    uint8_t chrsts_mismatch;
+};
+
+/** Live chrsts GPIO sample for bench / `3A0FF00C` v2. */
+struct tgm_chrsts_bench_t
+{
+    uint8_t phy;
+    uint8_t dt;
+    uint8_t active;
+    uint8_t maj;
+    uint8_t dock_raw;
+    uint8_t on_dock;
+    uint8_t stable_s;
+    uint8_t mismatch;
 };
 
 /** @brief PPG Data Struct used by the TGM service to inform the client of new PPG data. */
@@ -114,17 +136,19 @@ struct tgm_service_temp_data_t
     int16_t centitemp;
 };
 
-/** @brief Device Status Struct - sent to iOS app for charging/worn state */
+/** @brief Device Status Struct - sent to iOS app (3A0FF009, 5 bytes, FW >= 1.0.47). */
 struct tgm_service_status_t
 {
-    /** Charging state: 0 = not charging, 1 = charging */
-    uint8_t charging;
-    /** Worn state: 0 = not worn, 1 = worn (body temperature detected) */
+    /** On charging dock (chrsts GPIO): 0 = off dock, 1 = on dock */
+    uint8_t on_dock;
+    /** Worn state: 0 = no IR pulse, 1 = IR pulse latched (or mode 3) */
     uint8_t worn;
-    /** Device state enum value (0-3) */
+    /** device_state_t enum value (0–2) */
     uint8_t device_state;
     /** Battery percentage 0-100 */
     uint8_t battery_pct;
+    /** Charge active: 0 = not charging / full, 1 = cell voltage rising on dock */
+    uint8_t charge_active;
 };
 
 /** @brief Callback type for when PPG data is pulled. */
@@ -142,6 +166,12 @@ typedef int32_t (*tgm_service_bat_cb_t)(void);
 /** @brief Optional link / bench-probe hooks (logging, LED profile). */
 typedef void (*tgm_service_void_cb_t)(void);
 
+/** @brief IR-pulse worn latch changed (Automatic mode). */
+typedef void (*tgm_service_bool_cb_t)(bool on);
+
+/** @brief Sample chrsts GPIO for `3A0FF00C` v2 bench fields. */
+typedef void (*tgm_service_chrsts_bench_cb_t)(struct tgm_chrsts_bench_t *out);
+
 /** @brief Callback struct used by the TGM Service. */
 struct tgm_service_cb
 {
@@ -157,12 +187,20 @@ struct tgm_service_cb
     tgm_service_void_cb_t link_connected_cb;
     /** Called when BLE link drops (before sensor suspend). */
     tgm_service_void_cb_t link_disconnected_cb;
+    /** PPG FIFO started after CCC — apply worn sensing LEDs here, not on connect. */
+    tgm_service_void_cb_t ppg_stream_start_cb;
     /** Off-body connect probe started — apply dim PPG LEDs. */
     tgm_service_void_cb_t probe_begin_cb;
     /** Connect probe ended — restore off-body LED policy. */
     tgm_service_void_cb_t probe_end_cb;
     /** Refresh status notify + die temp after diagnostic snapshot command. */
     tgm_service_void_cb_t diagnostic_snapshot_cb;
+    /** Sample P0.05 chrsts for config-state v2 bench read. */
+    tgm_service_chrsts_bench_cb_t chrsts_bench_cb;
+    /** Called after `00B` opcode 0x09 sets explicit user device mode. */
+    tgm_service_void_cb_t user_mode_changed_cb;
+    /** Automatic worn: IR AC pulse present (not die temperature). */
+    tgm_service_bool_cb_t ir_pulse_worn_cb;
 };
 
 /** @brief Initialize the TGM Service.
@@ -185,18 +223,68 @@ void tgm_service_on_connected(void);
 /** @brief Clear notification state when the BLE link drops. */
 void tgm_service_on_disconnect(void);
 
-/** @brief Apply worn/off-body policy for sensor streaming and BLE notify volume.
+/** @brief Record worn status for GATT. Does not start or stop PPG/ACC.
  *
- * Off-body: stop PPG/ACC hardware and suppress high-rate sensor notifies.
- * On-body: resume streams for characteristics that still have notify enabled.
+ * Sensors follow the BLE link (and CCC), not this flag.
  */
 void tgm_service_set_device_worn(bool worn);
+
+/** @brief Mirror charger/dock state so connect probe can be skipped on Qi pad. */
+void tgm_service_set_on_dock(bool on_dock);
+
+/** @brief User override from `00B` opcode 0x09: 0=auto, 1=charger, 2=idle, 3=worn. */
+uint8_t tgm_service_get_user_device_mode(void);
+
+/** @brief Set user mode without GATT (0=auto). Used when STAT pad wins over leftover worn. */
+void tgm_service_set_user_device_mode(uint8_t mode);
+
+/** @brief Optional bench reboot interval (seconds). 0 = disabled. Set via opcode 0x0A. */
+uint16_t tgm_service_get_debug_reboot_interval_s(void);
 
 /** @brief True during the post-connect diagnostic probe window (off-body streaming). */
 bool tgm_service_connect_probe_active(void);
 
+/** @brief True when PPG CCC is on and a BLE link (or connect probe) is up. */
+bool tgm_service_ppg_notify_active(void);
+
+/** @brief True when a PPG notify succeeded in the last 2 s. */
+bool tgm_service_ppg_stream_live(void);
+
+/** @brief True when PPG/ACC CCC is on but no successful notify for 4 s.
+ *
+ * If PPG CCC is on, ACC/battery success does not keep a dead PPG stream alive.
+ */
+bool tgm_service_sensor_stream_stale(void);
+
+/** @brief Zero PPG LEDs and stop PPG/ACC. Call first on BLE stall recover. */
+void tgm_service_clear_optical_leds(void);
+
+/** @brief Start PPG/ACC if BLE + CCC and above the 5% soft floor. */
+void tgm_service_try_start_ppg_acc(void);
+
+/** @brief True when PPG or ACC CCC notify is enabled (live central stream). */
+bool tgm_service_sensor_notify_enabled(void);
+
+/** @brief True for a few seconds after an explicit GATT mode-3 write.
+ *
+ * STAT pad-wins must not clear worn in the gap before PPG/ACC CCC.
+ */
+bool tgm_service_mode3_pad_grace_active(void);
+
+/** @brief True for 6 minutes after an explicit GATT mode-3 write.
+ *
+ * Soft floor must not clear worn during a Protocol A session.
+ */
+bool tgm_service_mode3_soft_floor_hold_active(void);
+
+/** @brief True outside connect-probe lockout (kept for diagnostics; worn is IR pulse). */
+bool tgm_service_worn_from_temperature_allowed(void);
+
 /** @brief Push status/config snapshot to fw-log + status notify (opcode 0x07). */
 void tgm_service_emit_diagnostic_snapshot(void);
+
+/** @brief Refresh chrsts bench bytes in `3A0FF00C` from chrsts_bench_cb. */
+void tgm_service_refresh_chrsts_bench(void);
 
 /** @brief Best-effort UTF-8 line to `3A0FF00A` when notifications enabled. */
 void tgm_service_fw_log_printf(const char *fmt, ...);
@@ -271,18 +359,16 @@ int tgm_service_send_read_ppg_reg_notify(uint8_t ppg_reg_data);
  */
 int tgm_service_send_write_ppg_reg_notify(uint8_t ppg_reg_data);
 
-/** @brief Notify the client of device status change.
+/** @brief Notify the client of device status change (3A0FF009).
  *
- * This function notifies the iOS app of charging/worn state changes
- *
- * @param[in] charging True if device is charging
- * @param[in] worn True if device is worn (body temperature detected)
- * @param[in] state Current device_state_t enum value
- * @param[in] battery_pct Battery percentage 0-100
- * @retval 0 If the operation was successful.
- *           Otherwise, a (negative) error code is returned.
+ * @param[in] on_dock True if clip is on charging dock (chrsts).
+ * @param[in] worn True if worn on body (off dock only).
+ * @param[in] state device_state_t enum value.
+ * @param[in] battery_pct Battery percentage 0-100.
+ * @param[in] charge_active True if cell voltage rising on dock.
  */
-int tgm_service_send_status_notify(bool charging, bool worn, uint8_t state, uint8_t battery_pct);
+int tgm_service_send_status_notify(bool on_dock, bool worn, uint8_t state,
+				   uint8_t battery_pct, bool charge_active);
 
 /**
  * @}

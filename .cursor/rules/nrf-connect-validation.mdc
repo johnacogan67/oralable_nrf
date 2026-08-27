@@ -1,0 +1,46 @@
+---
+description: Validate nrf firmware changes against nRF Connect BLE/GATT expectations and logs
+globs: oralable_nrf/**/*
+alwaysApply: false
+---
+
+# nRF Connect firmware validation
+
+Any change to Oralable BLE firmware (`oralable_nrf/`) must be validated for **nRF Connect** compatibility before treating it as done.
+
+## Compatibility expectations
+
+- GATT layout must match what nRF Connect discovers: TGM service `3A0FF000-…`, characteristics `3A0FF001`–`3A0FF009` (and newer `00A`–`00C` only when that firmware branch is intentional).
+- Reads and notifications must use **consistent payload sizes and endianness** (e.g. battery = **4-byte int32 millivolts** on `3A0FF004`; firmware string UTF-8 on `3A0FF006`).
+- BLE connection parameters must keep links stable in nRF Connect (supervision timeout ≥10s; avoid ~420ms default drops after CCC writes).
+- Do not toggle boost/BATEN (P0.10) during battery measurement — it causes brown-out and disconnects visible in nRF Connect.
+
+## Validation workflow
+
+1. Flash the build to hardware.
+2. Connect with **nRF Connect** (iOS or desktop).
+3. Walk the discovery flow: services → characteristics → read firmware → enable notifications in order (battery, PPG, accel, temp).
+4. Export or paste the **nRF Connect log CSV** (`Timestamp, Source, Level, Line`) for any failure.
+
+## Using nRF Connect logs for diagnosis
+
+Treat the log as the primary artifact for next steps. Extract:
+
+- Connect/disconnect timestamps and gap duration (e.g. ~420ms → supervision timeout).
+- Which characteristic was read or had CCC enabled immediately before disconnect.
+- Hex values returned on read (decode ASCII for `3A0FF006`, uint64 for `3A0FF005`, int32 mV for `3A0FF004`).
+- Missing or unexpected UUIDs vs `app/src/tgm_service.h` / `src/tgm_service.c`.
+
+When analyzing logs, map each line to firmware code (`tgm_service.c`, `battery.c`, `ble.c`, `prj.conf`) and state the next fix explicitly.
+
+## Extra checks (1.0.66+ / Bugbot / Nordic alignment)
+
+- **Disconnect (1.0.71+):** enable PPG notify → disconnect central → `ppg_stop` + ACC stop; status green returns **only on pad** (1.0.72+: off-pad stays dark). Stream resumes only after reconnect + PPG CCC (no red/IR before CCC). **1.0.80+:** CCC on a connected link starts PPG/ACC even if `worn=0`. **1.0.81+:** below 5% PPG/ACC stay off while BLE remains; do not treat that silence as a stall drop. **1.0.82+:** status `worn=1` after IR pulse ~2.5 s on temple; bench with no pulse stays `worn=0`.
+- **Battery:** soak `3A0FF004` — values must stay in a plausible LiPo band; no sudden jump to exactly 2000 or 5000 mV from a bad ADC sample.
+- **PPG rate:** with CCC on `001` (worn write not required on **1.0.80+**), frame rate ~50 Hz (±10%); interrupt must fire (ACTIVE_LOW INT from DT).
+- **Advertising:** after disconnect, wait for host recycle then confirm Oralable reappears in scan (NCS `.recycled` path — do not expect adv restart inside the disconnect callback alone).
+- **CCC stagger (iOS / Mac 1.0.77+):** enable one characteristic at a time; nRF Connect log should show CCC write → Confirm → next char (battery → status → PPG → ACC → temp). Mac Protocol A uses the same order with ~60 ms between CCC writes.
+
+## iOS alignment
+
+nRF Connect validation is necessary but not sufficient: after nRF Connect passes, confirm the same GATT behavior works with the Oralable iOS app (`oralable_swift`).

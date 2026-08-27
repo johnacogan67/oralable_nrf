@@ -2,9 +2,27 @@
 
 Comprehensive positioning for Oralable MAM across hardware, mobile software, data architecture, competitive landscape, and the path from **wellness wearable** to **regulated medical device**.
 
-**Related docs:** [Appendix A](#appendix-a-nordic-wearables-comparison) · [Appendix B](#appendix-b-ppg-sensor-comparison) · [HARDWARE_ROADMAP_nRF54L15.md](./HARDWARE_ROADMAP_nRF54L15.md) · [OTA_DEVICE_MANAGER.md](./OTA_DEVICE_MANAGER.md) · Engineering hub: [ORALABLE_SYSTEM_ARCHITECTURE.md](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md) (§3 validation matrix)
+**Related docs:** [Appendix A](#appendix-a-nordic-wearables-comparison) · [Appendix B](#appendix-b-ppg-sensor-comparison) · [HARDWARE_ROADMAP_nRF54L15.md](./HARDWARE_ROADMAP_nRF54L15.md) · [OTA_DEVICE_MANAGER.md](./OTA_DEVICE_MANAGER.md) · Engineering hub: [ORALABLE_SYSTEM_ARCHITECTURE.md](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md) (§3 validation matrix) · **Figures:** [FIGURES.md](./FIGURES.md) · **App working diagrams:** [MOBILE_APP_FLOWS.md §2](../../oralable_swift/docs/MOBILE_APP_FLOWS.md#2-how-the-patient-app-works--phase-0)
 
 **Cross-repo:** iOS (`oralable_swift`), shared library (`OralableCore`), Python validation (`cursor_oralable`)
+
+```mermaid
+flowchart TB
+  Oralable[Oralable temple optical OMG]
+  SEMG[sEMG ambulatory GrindCare Bruxoff]
+  Intra[Intraoral force or appliance]
+  PSG[PSG-AV gold standard]
+  Rings[Finger rings Oura WHOOP HappyRing]
+  Oralable -.->|orthogonal| Rings
+  Oralable -.->|same site class different modality| SEMG
+  Oralable -.->|extraoral not intraoral| Intra
+  SEMG --> PSG
+  Oralable --> Screening[Stage A wellness screening phenotype]
+```
+
+![FIG-NRF-001 Competitor landscape](./figures/FIG-NRF-001-competitor-landscape.svg)
+
+*Figure FIG-NRF-001 — Competitor landscape collage (placeholder).*
 
 ---
 
@@ -14,10 +32,11 @@ Comprehensive positioning for Oralable MAM across hardware, mobile software, dat
 2. [The core insight: not a ring](#2-the-core-insight-not-a-ring)
 3. [Hardware: now vs roadmap](#3-hardware-now-vs-roadmap)
 4. [EMG vs PPG: second axis](#4-emg-vs-ppg-second-axis)
+4c. [Ambulatory SB devices (Li 2025)](#4c-ambulatory-sleep-bruxism-devices-literature--li-2025)
 4b. [Modality ladder: where Oralable sits](#4b-modality-ladder-where-oralable-sits)
 5. [Mobile apps & data collection](#5-mobile-apps--data-collection) — UX flows: `oralable_swift/docs/MOBILE_APP_FLOWS.md`
 6. [Data architecture: wellness black box vs open pipeline](#6-data-architecture-wellness-black-box-vs-open-pipeline)
-7. [Competitive map](#7-competitive-map)
+7. [Competitive map](#7-competitive-map) — [ranked table](#70-ranked-by-oralable-relevance)
 8. [Regulatory spectrum: wellness → medical device](#8-regulatory-spectrum-wellness--medical-device)
 9. [510(k) indication framing](#9-510k-indication-framing)
 10. [Android architecture options](#10-android-architecture-options)
@@ -37,7 +56,7 @@ Comprehensive positioning for Oralable MAM across hardware, mobile software, dat
 
 | Layer | Today (Phase 0 · Gen1) | Trajectory |
 |-------|------------------------|------------|
-| **Hardware** | pcb00003 **BOM REV8** / **REV10**, Kaga **ES2832AA2** (nRF52832), FW **1.0.70**, Oralable magnetic case | **Gen2** BOM REV9 / REV11, Kaga **ES4L15BA1** (nRF54L15), FW 2.0.x, on-device ML headroom |
+| **Hardware** | pcb00003 **BOM REV8** / **REV10**, Kaga **ES2832AA2** (nRF52832), FW **1.0.82**, Oralable magnetic case | **Gen2** BOM REV9 / REV11, Kaga **ES4L15BA1** (nRF54L15), FW 2.0.x, on-device ML headroom |
 | **Firmware** | TGM GATT, worn-gated streaming, MCUboot/mcumgr OTA | Richer services, in-app DFU, locked algorithm builds for clearance |
 | **iOS** | Vitals phase: temple HR/SpO₂, placement picker | Phase 1+ muscle UI; production CloudKit; clinical exports |
 | **Android** | Not built; marketing cites 2026 | Native Kotlin recommended; share BLE/parser spec via OralableCore port |
@@ -46,7 +65,7 @@ Comprehensive positioning for Oralable MAM across hardware, mobile software, dat
 
 Canonical map: `cursor_oralable/docs/PRODUCT_ROADMAP.md` · cost/timeline: `cursor_oralable/docs/data_room/COST_AND_TIMELINE.md` · IP stages: `cursor_oralable/docs/IP_NORTH_STAR.md` (Stage A wearable → Stage B medical).
 
-In the landscape, Oralable is **adjacent to EMG bruxism devices** (ANR M40, Cometa) and **orthogonal to health rings** (JCRing, Oura, IDO, WHOOP). It also parallels **longitudinal overnight monitors** — Wellue (SpO₂), Aktiia/Hilo (BP), SOND (sleep coaching) — same ambulatory + professional export shape, different biomarker (see §14–15).
+In the landscape, Oralable is **adjacent to EMG bruxism devices** (ANR M40, Cometa) and **orthogonal to health rings** (JCRing, Oura, IDO, WHOOP) and to **cleared finger HSAT rings** (Happy Ring, Belun). It also parallels **longitudinal overnight monitors** — Wellue (SpO₂), Aktiia/Hilo (BP), SOND (sleep coaching) — same ambulatory + professional export shape, different biomarker (see §14–15).
 
 ---
 
@@ -93,7 +112,7 @@ Oralable sits in a **niche orthogonal to rings**: same broad sensor classes (PPG
 | Placement (Phase 0) | **Temple** HR/SpO₂ | Muscle/cheek Protocol B = Phase 1+ |
 | BLE | Custom **TGM GATT** service (`3A0FF000`) | Raw 50 Hz PPG (R/G/IR) + ACC + temp + status |
 | OTA | **MCUboot + mcumgr SMP** | Nordic Device Manager on iPhone; open NCS stack |
-| FW version | Pilot ship **1.0.70** (iOS gate min **1.0.63** / recommend **1.0.70**; app **4.3.3**) · Gen2 **2.0.x** — [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) |
+| FW version | Pilot ship **1.0.82** (iOS gate min **1.0.63** / recommend **1.0.82**; app **4.3.3**) · Gen2 **2.0.x** — [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) |
 
 **BLE characteristics (TGM service):**
 
@@ -107,7 +126,7 @@ Oralable sits in a **niche orthogonal to rings**: same broad sensor classes (PPG
 | `...f006` | Firmware version | string |
 | `...f009` | Status | on_dock, worn, device_state, battery % (+ `charge_active` on FW ≥ 1.0.47) |
 
-**Streaming policy:** On-body → full PPG/ACC at 50 Hz while connected; off-body → PPG/ACC hardware stopped, status still available. **Worn + BLE link down (1.0.70):** sensors keep draining FIFO (notifies off). **Advertising:** restart from NCS connection `.recycled` (not disconnect callback). Worn detection uses die temperature thresholds (~25.5 °C on / ~24.5 °C off) or manual placement mode on Gen1 pilot; firmware status char is primary source for iOS.
+**Streaming policy (1.0.82):** PPG/ACC run while BLE is connected and notify (CCC) is on — even if `worn=0`. Disconnect stops the chips. Below ~5% / 3.61 V, sensors off with MCU and BLE up. Automatic `worn` is IR pulse, not die temperature. Mode 3 still forces worn. **Advertising:** restart from NCS connection `.recycled`. Firmware status char is primary for iOS.
 
 ### 3.2 Roadmap (data room: nRF54L15 generation)
 
@@ -153,6 +172,26 @@ See [Appendix A](#appendix-a-nordic-wearables-comparison) (EMG section).
 
 ---
 
+## 4c. Ambulatory sleep-bruxism devices (literature — Li 2025)
+
+Narrative review of **commercially available ambulatory SB detectors** (literature to Dec 2024):  
+Li et al., *Aust Dent J* 2024;69(Suppl 1):S53–S62 ([doi:10.1111/adj.13057](https://doi.org/10.1111/adj.13057)). Full distill: `cursor_oralable/docs/data_room/LITERATURE_AND_PRIOR_ART.md`.
+
+| Device class (examples) | Modality | Landscape note |
+|-------------------------|----------|----------------|
+| BiteStrip, dia-BRUXO | masseter **sEMG** | Screening / episodic; PSG-AV validation incomplete for several |
+| GrindCare | **anterior temporalis sEMG** (+ biofeedback pulse) | Same muscle *site* as Oralable, different *physics* (electrical vs optical) |
+| Bruxoff | masseter sEMG + ECG | Better than EMG-only in some reports; still overestimates RMMA |
+| NOX T3, Sleep Profiler | Type II multi-channel PSG | Closer to lab PSG; not consumer temple wellness |
+| Sunrise | mandibular movement | Episodic strength; tonic clench / population gaps |
+| Intra-splint force (ISFDD) | pressure in maxillary splint | **Intraoral** — orthogonal form factor to Oralable clip |
+
+**Authors’ bottom line:** ambulatory devices are promising as **screening** alternatives to PSG-AV, but need more gold-standard validation before wide clinical/domestic adoption. EMG-only devices tend to **overestimate** SB without AV exclusion of other orofacial activity.
+
+**Oralable gap vs this table:** no commercial **extraoral temporalis optical / PPG–OMG** ambulatory device appears in Li’s review. Oralable sits in that gap (Stage A wellness temple clip → Stage B EMG concordance later) — adjacent to GrindCare’s *site*, orthogonal on *signal*.
+
+---
+
 ## 4b. Modality ladder: where Oralable sits
 
 Broader neural / muscle measurement stack (distilled from external Gemini temple-PPG exploration — **not product claims**). Full matrix: `cursor_oralable/docs/data_room/GEMINI_TEMPLE_PPG_AVENUES.md` · roadmap [PRODUCT_ROADMAP.md §2b](../../cursor_oralable/docs/PRODUCT_ROADMAP.md#2b-technology-avenues).
@@ -176,6 +215,18 @@ Broader neural / muscle measurement stack (distilled from external Gemini temple
 ---
 
 ## 5. Mobile apps & data collection
+
+**Canonical UX + working diagrams:** [oralable_swift/docs/MOBILE_APP_FLOWS.md](../../oralable_swift/docs/MOBILE_APP_FLOWS.md) — especially [§2 How the patient app works](../../oralable_swift/docs/MOBILE_APP_FLOWS.md#2-how-the-patient-app-works--phase-0).
+
+```mermaid
+flowchart LR
+  Case[Charge on Oralable case] --> App[Oralable patient app 4.3.3]
+  App --> BLE[BLE TGM FW 1.0.70]
+  BLE --> Dash[Temple HR SpO2]
+  Dash --> Rec[AutomaticRecordingSession]
+  Rec --> Share[Share PDF or CSV]
+  Share -.->|Phase 1 plus| Pro[Oralable for Dentists]
+```
 
 ### 5.1 iOS ecosystem (exists today)
 
@@ -209,7 +260,7 @@ Oralable REV10 (BLE)
 **Connect sequence** (Nordic Academy / Apple CoreBluetooth–aligned):
 
 1. Read device ID (`3A0FF005`)
-2. Read firmware version (`3A0FF006`) → **FirmwareGate** (minimum **1.0.63**; recommend **1.0.70**)
+2. Read firmware version (`3A0FF006`) → **FirmwareGate** (minimum **1.0.63**; recommend **1.0.82**)
 3. Manual placement write (`00B` 0x09) before streaming CCCs
 4. Staggered CCC enables — **await each confirm** (battery → status → PPG → ACC → temp)
 5. Ready when PPG + ACC + **status + battery** CCC confirms are set
@@ -312,6 +363,45 @@ This is closer to a **research instrument with a consumer shell** than a wellnes
 
 ## 7. Competitive map
 
+### 7.0 Ranked by Oralable relevance
+
+Sort is **what matters to Oralable**, not brand size. Rank 1 = in-kit or Beacon workflow. Lower ranks = MCU / form-factor contrast only. **Not substitutes.** Detail for each name follows in §7.1–7.9, §4c, and Appendix A/B.
+
+| Rank | Product | Class | Form / site | Why it matters | Why it is not Oralable | Oralable use |
+|------|---------|-------|-------------|----------------|------------------------|--------------|
+| 1 | **ANR M40** | Temporalis **sEMG** | EMG pod on anterior temporalis | **In the Research Kit.** Same belly, electrical comparator for Dual A | Electrical µV, not IR-DC; not a consumer SKU | Dual A concordance · Paper A methods |
+| 2 | **AcuPebble** | OSA **HSAT / AHI** | Neck (± finger SpO₂) | **Pedro’s AHI tool today.** Arm P nest | Airway acoustics / AHI; not jaw-load | Nest AHI — do not clone |
+| 3 | **GrindCare** | Anterior temporalis **sEMG** | Temple electrode + biofeedback | Same **site class** as Oralable; Li 2025 peer | Electrical + impulse therapy, not optical OMG | Paper A landscape · site peer |
+| 4 | **Bruxoff** | Masseter sEMG + ECG | Cheek EMG ambulatory | Ambulatory **SB output class**; Cid-Verdejo vs PSG | Masseter EMG, not temple optical; not PSG gold | Paper A reference when available |
+| 5 | **Wellue O2Ring** | Finger **SpO₂** oximeter | Finger ring (transmissive R+IR) | Overnight **oxygen** peer; FDA oximeter; SASHB overlap | Finger SpO₂ only — no masseter / temporalis | Complement O₂ + jaw; not AHI |
+| 6 | **Happy Ring** | Finger **HSAT** (hAHI) | Ceramic ring (~Oura size) | Cleared **hAHI** on an Oura-like ring; same AHI shelf as AcuPebble | Finger HSAT, not temple; not bruxism | Landscape nest class — Pedro stays on AcuPebble |
+| 7 | **Belun / NightOwl** | Finger **HSAT** (MNR) | Medical finger ring / fingertip | Predicate/reference class for Happy (K222579 / K191031) | HSAT AHI, not OMG | Know the class; do not kit |
+| 8 | **ProSomnus RPMO₂** | Smart **MAD** + SpO₂ | Intraoral appliance | Cleared sensing **inside** a MAD (Apr 2026) | Intraoral OEM path — not extraoral | Phase 2 complementarity only |
+| 9 | **SomnoMed Rest Assure** | Smart **MAD** compliance | Intraoral appliance | Cleared **compliance** in own MAD (K233497); AHI efficacy not on first pass | Intraoral; not Oralable site | Positioning vs smart OAT — not a race |
+| 10 | **Dianyx t.e.s.a.** | Intraoral PPG | Inside the appliance | Founder history / Nabavi paper; possible later OEM layer | **Intraoral** — Paper A is extraoral temporalis | McGill first; Dianyx later if complementary |
+| 11 | **Aktiia / Hilo** | Cuffless **BP** | Wrist PPG bracelet | Optical PPG → **FDA/CE monitoring** path; same overnight + pro-export shape | BP, not bruxism or sleep | Regulatory / UX analog — not a competitor |
+| 12 | **Sunrise** | Mandibular motion | Chin sensor | Li 2025 ambulatory SB class (motion, not EMG) | Jaw kinematics, not IR-DC PPG | Literature peer only |
+| 13 | **JCRing** | Wellness **ring** (Nordic) | Finger · nRF52840 | Closest **Nordic health-ring** OEM; named in HW diligence | Finger wellness; undisclosed PPG | MCU / OEM contrast |
+| 14 | **IDO IDR01** | Wellness **ring** (Nordic) | Finger · **nRF54L15** | Gen2 **compute-tier** peer (same SoC class as ES4L15BA1) | Ring form, general health, PPG undisclosed | Roadmap MCU peer — not clinical |
+| 15 | **Oura** | Wellness **ring** | Finger · PSoC 6 | Form-factor and sleep-brand contrast; what buyers think “ring” means | Readiness scores; no jaw occlusion | “Not a ring” pitch — do not compete on readiness |
+| 16 | **Ultrahuman** | Wellness **ring** (Nordic) | Finger · nRF52840 + STM32G0 | Nordic ring BOM / teardown peer | Metabolic/fitness, not dental | HW appendix only |
+| 17 | **WHOOP** | Wellness **strap** | Wrist / bicep | Battery / strain ecosystem; nRF52840 (4.0) then Ambiq (5.0) | Strain/recovery, not jaw | Aspirational HW — ignore for GTM |
+| 18 | **SOND Dreambuds** | Sleep **earbuds** | Ear + smart case | Same overnight premium moment | Audio coach; no PPG; no bruxism | Orthogonal overnight shelf |
+| 19 | **Withings / Polar** | Watch / band | Wrist | Validated wrist PPG / sport HR | Wrong site and indication | Appendix B only |
+| 20 | **ArcX** | Media **ring** | Finger · nRF52832 | Same **nRF52832** tier as Gen1 | No health stack | MCU footnote |
+
+**How to read the ranks**
+
+1. **1–4** — same problem or same Beacon workflow (sEMG site / AHI nest).  
+2. **5–7** — overnight oxygen or HSAT from the **finger**; complementary, not jaw.  
+3. **8–10** — **intraoral** smart OAT; different anatomy; do not race their FDA file.  
+4. **11–12** — analog science or Li 2025 class.  
+5. **13–20** — rings/straps/watches for **hardware or pitch contrast**. IDO belongs here, not with Happy Ring.
+
+BiteStrip / dia-BRUXO (Li 2025 masseter sEMG screeners) sit under Bruxoff’s class, below GrindCare. Cometa sits with ANR as **clinical EMG**, not in-kit.
+
+---
+
 ### 7.1 Closest peers (same problem, different solution)
 
 | Product | Why adjacent | Why different |
@@ -408,15 +498,34 @@ Swiss **Aktiia** → consumer brand **Hilo** (EU); **G0** system in US. **First 
 
 ### 7.8 Extended peer snapshot (overnight + longitudinal)
 
-| | **Oralable** | **Wellue O2Ring** | **Aktiia / Hilo** | **SOND Dreambuds** |
-|---|:---:|:---:|:---:|:---:|
-| **Primary metric** | TFI, SASHB, jaw events | SpO₂, PR | BP (mmHg) | Sleep coaching + staging |
-| **Site** | Cheek / masseter | Finger | Wrist | Ear canal |
-| **PPG type** | Reflective R/G/IR | Transmissive R+IR | Reflective green | **None** (biomechanical) |
-| **Raw to phone** | **50 Hz open GATT** | ~1 Hz SpO₂ % | Sparse BP + cloud | Small BLE packets to case |
-| **Pro channel** | Dentist app + handshake | PDF for doctor | HCP dashboard | Consumer only |
-| **Cleared today?** | Wellness | **FDA oximeter** | **FDA + CE BP** | Wellness |
-| **nRF documented?** | **Yes** (nRF52832) | Unlikely headline | No | **No** |
+| | **Oralable** | **Wellue O2Ring** | **Aktiia / Hilo** | **SOND Dreambuds** | **Happy Ring** |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Primary metric** | TFI, SASHB, jaw events | SpO₂, PR | BP (mmHg) | Sleep coaching + staging | **hAHI**, TST |
+| **Site** | Cheek / masseter | Finger | Wrist | Ear canal | Finger (Oura-like ring) |
+| **PPG type** | Reflective R/G/IR | Transmissive R+IR | Reflective green | **None** (biomechanical) | Finger PPG (company) |
+| **Raw to phone** | **50 Hz open GATT** | ~1 Hz SpO₂ % | Sparse BP + cloud | Small BLE packets to case | App / cloud (not open 50 Hz) |
+| **Pro channel** | Dentist app + handshake | PDF for doctor | HCP dashboard | Consumer only | Physician viewer (Rx HSAT) |
+| **Cleared today?** | Wellness | **FDA oximeter** | **FDA + CE BP** | Wellness | **FDA MWI + MNR** |
+| **nRF documented?** | **Yes** (nRF52832) | Unlikely headline | No | **No** | **No** |
+
+### 7.9 Happy Ring (Happy Health — Oura-like finger HSAT)
+
+Ceramic **finger ring** (company: 2.4 mm × 8 mm) — jewelry form like **Oura**, not a temple clip. Bookmark: `cursor_oralable/docs/data_room/HAPPY_RING.md`.
+
+| Item | Detail |
+|------|--------|
+| **Form** | Finger ring (ceramic; sizes US 6–14) |
+| **Site** | Finger PPG (company: higher perfusion than wrist) |
+| **Sensors (company)** | 4 LEDs, 4 electrodes, 3-axis ACC, 2 temp |
+| **K240236** (24 Sep 2024) | **MWI** physiologic monitor — PPG / SpO₂ / HR / temp / EDA / accel |
+| **K242224** (18 Jun 2025) | **MNR** SaMD **Happy Health Home Sleep Test** — **hAHI** + TST; adults 22+; HCP-directed |
+| **Predicate / reference** | NightOwl (K191031) · Belun BLS-100 (K222579) |
+| **Bruxism** | **Not** claimed |
+| **Nordic nRF** | **Not documented** |
+
+**FDA IFU (use this, not PR copy):** aid in **evaluating** sleep-related breathing disorders; clinician interprets hAHI. Company “97% vs PSG” / “diagnoses OSA” is **marketing** — do not cite as Oralable evidence.
+
+**Overlap with Oralable:** Same overnight-sleep **shelf** as AcuPebble and Wellue (AHI-class or SpO₂). **Orthogonal** on anatomy (finger vs temporalis) and job (HSAT vs jaw-load). Nest like AcuPebble; do not clone hAHI. Pedro’s current AHI tool remains **AcuPebble**.
 
 ---
 
@@ -493,6 +602,7 @@ Same legal posture as most consumer rings — with the caveat that **bruxism** i
 | **Wellue O2Ring** | **FDA-cleared pulse oximeter** (2025); home/clinical SpO₂ collection |
 | **Aktiia / Hilo** | **CE Class IIa** + **FDA 510(k) OTC** cuffless BP (2025) — reference clearance path for optical wearables |
 | **SOND Dreambuds** | Wellness; “medical-grade accuracy” marketing |
+| **Happy Ring** | **FDA Class II** — K240236 (MWI monitor) + K242224 (MNR HSAT SaMD, **hAHI**); Oura-like finger ring; **not** bruxism |
 | **Oralable** | Wellness today; **bruxism-specific** indication is the natural clearance target |
 
 ---
@@ -604,7 +714,7 @@ Any Android implementation must reproduce:
 | Capability | Spec source |
 |------------|-------------|
 | TGM GATT connect sequence | `DeviceConnectionCoordinator`, `BLEConstants.TGM` |
-| Firmware gate min **1.0.63** / recommend **1.0.70** | `FirmwareGate.swift` |
+| Firmware gate min **1.0.63** / recommend **1.0.82** | `FirmwareGate.swift` |
 | PPG/ACC/temp/status parsing | `BLEDataParser.swift` |
 | 50 Hz alignment / bucketing | `DeviceManagerAdapter` |
 | Worn-gated recording | `AutomaticRecordingSession`, `TGMDeviceStatus` |
@@ -854,6 +964,7 @@ Three commercial paths map to regulatory stages. The codebase already supports a
 | Wellue O2Ring (SpO₂) | "Jaw activity + oxygen burden — rings can't see the masseter" |
 | Aktiia / Hilo (BP) | Same **longitudinal pro workflow**; different specialty (cardiology vs dental sleep) |
 | SOND Dreambuds | "Coach sleep from the ear; Oralable documents what the jaw did" |
+| Happy Ring (finger HSAT) | "Cleared **hAHI** from the finger — Oralable documents **jaw-load** at the temple; nest, do not clone" |
 
 ---
 
@@ -888,7 +999,7 @@ Three commercial paths map to regulatory stages. The codebase already supports a
 
 **What Oralable is:** A cheek-worn **MAXM86161 + LIS2DTW12** sensor on **Nordic BLE**, streaming **50 Hz raw PPG and accelerometry** to an **iOS-first** two-app ecosystem, processing **IR-DC hemodynamic occlusion** for **sleep bruxism** — validated against **EMG** (ANR M40) in software, not in the consumer hardware.
 
-**Where it fits:** Orthogonal to **readiness rings** (Oura, JCRing, WHOOP); adjacent to **EMG bruxism tools** (ANR, Cometa); parallel to **longitudinal monitors** (Aktiia/Hilo for BP, Wellue for SpO₂, SOND for sleep coaching) — same **overnight + pro export** product shape, different biomarker and specialty.
+**Where it fits:** Orthogonal to **readiness rings** (Oura, JCRing, WHOOP) and to **cleared finger HSAT rings** (Happy Ring); adjacent to **EMG bruxism tools** (ANR, Cometa); parallel to **longitudinal monitors** (Aktiia/Hilo for BP, Wellue for SpO₂, SOND for sleep coaching) — same **overnight + pro export** product shape, different biomarker and specialty.
 
 **Where it is going:** **nRF54L15** without changing PPG silicon; **Android native** in 2026; **CloudKit/production sharing** for dentist channel; **510(k)** for nocturnal bruxism **monitoring** (not general wellness) when clinical package is ready; unified **overnight report** UX (TFI + SASHB + events) aligned with Hilo/Wellue timeline grammar.
 
@@ -914,6 +1025,9 @@ Consolidated positioning for products discussed alongside rings/straps but servi
    Aktiia / Hilo         Wellue O2Ring          Oralable MAM
    (BP, wrist PPG)       (SpO₂, finger)         (jaw IR-DC + SASHB)
         │                     │                     │
+        │              Happy Ring (hAHI, finger)    │
+        │              AcuPebble (AHI, neck)        │
+        │                     │                     │
         └─────────────────────┼─────────────────────┘
                               │
          Hourly rollups · trends · pro export · treatment feedback
@@ -932,6 +1046,12 @@ Consolidated positioning for products discussed alongside rings/straps but servi
 - Overlaps Oralable on **SASHB**, overnight HR, motion, clinician PDF.
 - Does **not** measure jaw occlusion or masseter activity.
 - Pairing opportunity: **Wellue (O₂) + Oralable (jaw)** in dental sleep / OSA-adjacent patients.
+
+### Happy Ring — finger, cleared HSAT SaMD
+
+- **Oura-like ceramic ring**; FDA **hAHI** (K242224) + physiologic monitor (K240236).
+- Same **AHI-class** shelf as AcuPebble / Belun / NightOwl — **not** bruxism, **not** temple.
+- Nest as HSAT context; Pedro’s tool today remains **AcuPebble**. See `HAPPY_RING.md`.
 
 ### Aktiia / Hilo — wrist, cleared cuffless BP
 
@@ -1201,6 +1321,10 @@ Reference designs often use **nRF52840 + ADS1293** because EMG needs **high inpu
 
 ## Appendix B: PPG sensor comparison
 
+![FIG-NRF-006 PPG sensor comparison](./figures/FIG-NRF-006-ppg-sensor-compare.svg)
+
+*Figure FIG-NRF-006 — PPG sensor comparison visual (placeholder).*
+
 ## At-a-glance
 
 | Product | Form | PPG approach | Named PPG IC / module? | LEDs / receivers (public) | SpO₂ | Notes |
@@ -1218,6 +1342,7 @@ Reference designs often use **nRF52840 + ADS1293** because EMG needs **high inpu
 | **WHOOP 4.0** | Strap | Discrete optical stack | Teardown: **Maxim MAX86171** + MAX32652 | 5 LEDs, 4 PDs (typical config) | Yes | Nordic cites nRF52840 |
 | **WHOOP 5.0 / MG** | Strap | Discrete PPG/ECG | Teardown: **ADI MAX86171** | Same LED array class as 5.0 | Yes + ECG (MG) | Ambiq MCU, not Nordic |
 | **Wellue O2Ring** | Finger ring | **Transmissive** R+IR through finger | **No** (Viatom integrated stack) | 660 nm + 940 nm; 1 PD opposite LEDs | Yes (primary) | **FDA oximeter** 2025; not reflective cheek PPG |
+| **Happy Ring** | Finger ring (Oura-like) | Finger PPG (company) | **No** public AFE | 4 LEDs + electrodes (company) | Yes (via HSAT SaMD) | **K240236** MWI + **K242224** MNR **hAHI**; not jaw |
 | **Aktiia / Hilo** | Wrist band | Reflective **green** 526 nm PPG | **No** | 1λ + PD | No (BP focus) | CE IIa + FDA OTC cuffless BP; see §Aktiia |
 
 ---
@@ -1391,6 +1516,7 @@ Not a wellness ring — a **clinical-style pulse oximeter** in ring form. **FDA-
 - `cursor_oralable/docs/CLINICAL_VALIDATION.md`
 - [SOND](https://sond.com/) · [TechCrunch SOND launch](https://techcrunch.com/2026/05/27/sond-a-sleep-tech-startup-from-boses-former-head-of-sleep-exits-stealth-with-7m/)
 - [Wellue O2Ring](https://getwellue.com/products/o2ring-wearable-pulse-oximeter) · [AASM FDA approval note](https://aasm.org/apnimed-announces-positive-results-in-clinical-trial-of-sleep-apnea-medication-2-2/)
+- [Happy Ring / Happy Sleep](https://www.happysleep.com/tech) · [K240236](https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID=K240236) · [K242224](https://www.accessdata.fda.gov/cdrh_docs/pdf24/K242224.pdf) · bookmark `cursor_oralable/docs/data_room/HAPPY_RING.md`
 - [Aktiia / Hilo](https://hilo.com/) · [FDA OTC clearance PR](https://www.prnewswire.com/news-releases/aktiias-hilo-band-becomes-first-cuffless-blood-pressure-monitor-cleared-by-fda-for-over-the-counter-use-302501123.html)
 - `OralableCore/Sources/OralableCore/CloudKit/ProfessionalHandshakeExport.swift`
 
@@ -1406,4 +1532,4 @@ Not a wellness ring — a **clinical-style pulse oximeter** in ring form. **FDA-
 
 ---
 
-*Document version: 1.2 — June 2026. Appendices A (Nordic) and B (PPG) consolidated; see DEVELOPMENT.md and cursor_oralable CLINICAL_VALIDATION.md.*
+*Document version: 1.3 — 13 Aug 2026. §7.0 ranked by Oralable relevance; Happy Ring §7.9. Appendices A (Nordic) and B (PPG) consolidated; see DEVELOPMENT.md and cursor_oralable CLINICAL_VALIDATION.md.*

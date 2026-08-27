@@ -44,7 +44,7 @@ static uint32_t fwlog_err = 0;
 static int32_t fwlog_last_err = 0;
 
 static struct tgm_fw_config_state_t fw_config_state = {
-    .version = 1,
+    .version = 2,
     .led_green_pa = 5,
     .led_ir_pa = 128,
     .led_red_pa = 32,
@@ -56,6 +56,18 @@ static struct tgm_fw_config_state_t fw_config_state = {
 
 static uint8_t stream_stats_period_s = 5;
 static struct k_work_delayable stream_stats_work;
+static struct k_work_delayable sensor_health_work;
+static int64_t sensor_stream_watch_ms;
+static int64_t last_ppg_notify_ok_ms;
+static int64_t last_acc_notify_ok_ms;
+static int64_t last_bat_notify_ok_ms;
+static int64_t last_fwlog_notify_ok_ms;
+static int64_t mode3_pad_grace_until_ms;
+static int64_t mode3_soft_floor_hold_until_ms;
+
+#define SENSOR_NOTIFY_STALL_MS 4000
+#define MODE3_PAD_GRACE_MS 5000
+#define MODE3_SOFT_FLOOR_HOLD_MS (6 * 60 * 1000)
 
 static uint32_t ppg_frame_counter = 0;
 static uint32_t acc_frame_counter = 0;
@@ -76,6 +88,36 @@ static struct k_work_delayable connect_probe_end_work;
 
 static bool device_worn;
 static bool connect_probe_active;
+static bool charger_on_dock;
+static uint8_t user_device_mode;
+static uint16_t debug_reboot_interval_s = CONFIG_TGM_DEBUG_REBOOT_INTERVAL_S;
+static int64_t worn_temp_lockout_until_ms;
+
+/* IR pulse worn (Automatic): IIR DC + |AC|. PI on ≈ 0.0005, off ≈ 0.0002. */
+static uint32_t ir_pulse_dc;
+static uint32_t ir_pulse_ac_lp;
+static bool ir_pulse_filt_init;
+static bool ir_pulse_latched;
+static int64_t ir_pulse_good_since_ms;
+static int64_t ir_pulse_bad_since_ms;
+
+#define IR_PULSE_DC_MIN 2000U
+#define IR_PULSE_ON_MS 2500
+#define IR_PULSE_HOLD_MS 20000
+
+static void ir_pulse_set_latched(bool on);
+static void ir_pulse_reset(void);
+static void ir_pulse_feed(const struct ppg_sample *samples, uint8_t n);
+
+static void worn_temp_extend_lockout(int seconds)
+{
+	int64_t until = k_uptime_get() + (int64_t)seconds * 1000LL;
+
+	if (until > worn_temp_lockout_until_ms)
+	{
+		worn_temp_lockout_until_ms = until;
+	}
+}
 
 #define GATT_NOTIFY_LOG_INTERVAL_MS 1000
 #define GATT_TX_BACKOFF_MS          80
@@ -91,6 +133,7 @@ static bool any_stream_notify_enabled(void)
 void temperature_set_measurement_interval_seconds(uint16_t seconds);
 
 static void tgm_service_probe_begin(void);
+static bool streaming_allowed(void);
 
 enum fw_cfg_opcode_t {
     FW_CFG_SET_LED_PA = 0x01,
@@ -101,9 +144,40 @@ enum fw_cfg_opcode_t {
     FW_CFG_SET_STREAM_ENABLE_MASK = 0x06,
     FW_CFG_REQUEST_STATUS_SNAPSHOT = 0x07,
     FW_CFG_RESTART_CONNECT_PROBE = 0x08,
+    FW_CFG_SET_USER_DEVICE_MODE = 0x09,
+    FW_CFG_SET_DEBUG_REBOOT_INTERVAL_S = 0x0A,
 };
 
 static void stream_stats_work_handler(struct k_work *work);
+
+static void fw_log_open_work_handler(struct k_work *work);
+static struct k_work_delayable fw_log_open_work;
+
+static void status_open_work_handler(struct k_work *work);
+static struct k_work_delayable status_open_work;
+
+void tgm_service_refresh_chrsts_bench(void)
+{
+    struct tgm_chrsts_bench_t sample;
+
+    if (!tgm_service_cb || !tgm_service_cb->chrsts_bench_cb)
+    {
+        return;
+    }
+
+    memset(&sample, 0, sizeof(sample));
+    tgm_service_cb->chrsts_bench_cb(&sample);
+
+    fw_config_state.version = 2;
+    fw_config_state.chrsts_phy = sample.phy;
+    fw_config_state.chrsts_dt = sample.dt;
+    fw_config_state.chrsts_active = sample.active;
+    fw_config_state.chrsts_maj = sample.maj;
+    fw_config_state.chrsts_dock_raw = sample.dock_raw;
+    fw_config_state.chrsts_on_dock = sample.on_dock;
+    fw_config_state.chrsts_stable_s = sample.stable_s;
+    fw_config_state.chrsts_mismatch = sample.mismatch;
+}
 
 static ssize_t write_fw_config(struct bt_conn *conn, const struct bt_gatt_attr *attr,
                                const void *buf, uint16_t len, uint16_t offset, uint8_t flags)
@@ -219,17 +293,17 @@ static ssize_t write_fw_config(struct bt_conn *conn, const struct bt_gatt_attr *
         fw_config_state.stream_enable_mask = (uint8_t)(b[1] | 0x03u);
         if ((fw_config_state.stream_enable_mask & 0x01) == 0)
         {
-            (void)ppg_stop();
+            (void)ppg_stop_streaming();
         }
         if ((fw_config_state.stream_enable_mask & 0x02) == 0)
         {
             (void)acc_stop();
         }
-        if ((fw_config_state.stream_enable_mask & 0x01) != 0)
+        if ((fw_config_state.stream_enable_mask & 0x01) != 0 && streaming_allowed())
         {
             (void)ppg_start();
         }
-        if ((fw_config_state.stream_enable_mask & 0x02) != 0)
+        if ((fw_config_state.stream_enable_mask & 0x02) != 0 && streaming_allowed())
         {
             (void)acc_start();
         }
@@ -259,6 +333,46 @@ static ssize_t write_fw_config(struct bt_conn *conn, const struct bt_gatt_attr *
             tgm_service_fw_log_printf("fw: cfg connect_probe_restart %ds",
                                     CONFIG_TGM_CONNECT_PROBE_DURATION_S);
         }
+        break;
+
+    case FW_CFG_SET_USER_DEVICE_MODE:
+        if (len != 2u)
+        {
+            return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+        }
+        if (b[1] > 3u)
+        {
+            return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+        }
+        user_device_mode = b[1];
+        if (b[1] == 3u)
+        {
+            mode3_pad_grace_until_ms = k_uptime_get() + MODE3_PAD_GRACE_MS;
+            mode3_soft_floor_hold_until_ms = k_uptime_get() + MODE3_SOFT_FLOOR_HOLD_MS;
+            tgm_service_fw_log_printf("fw: mode3 pad grace %d ms hold %d s",
+                                      MODE3_PAD_GRACE_MS, MODE3_SOFT_FLOOR_HOLD_MS / 1000);
+        }
+        else
+        {
+            mode3_pad_grace_until_ms = 0;
+            mode3_soft_floor_hold_until_ms = 0;
+        }
+        tgm_service_fw_log_printf("fw: cfg user_mode=%u (0=auto 1=charger 2=idle 3=worn)",
+                                  user_device_mode);
+        if (tgm_service_cb && tgm_service_cb->user_mode_changed_cb)
+        {
+            tgm_service_cb->user_mode_changed_cb();
+        }
+        tgm_service_emit_diagnostic_snapshot();
+        break;
+
+    case FW_CFG_SET_DEBUG_REBOOT_INTERVAL_S:
+        if (len != 3u)
+        {
+            return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+        }
+        debug_reboot_interval_s = (uint16_t)b[1] | ((uint16_t)b[2] << 8);
+        tgm_service_fw_log_printf("fw: cfg debug_reboot_s=%u", debug_reboot_interval_s);
         break;
 
     default:
@@ -342,12 +456,108 @@ static void tgm_service_suspend_sensor_streams(void);
 
 static bool streaming_allowed(void)
 {
-    return device_worn || connect_probe_active;
+    /* Sensors follow BLE + CCC, not worn. Below 5% / 3.61 V they stay off. */
+    if (battery_below_soft_floor()) {
+        return false;
+    }
+
+    return ble_is_connected() || connect_probe_active;
+}
+
+bool tgm_service_ppg_notify_active(void)
+{
+    return notify_ppg_data && streaming_allowed();
+}
+
+bool tgm_service_ppg_stream_live(void)
+{
+    if (!notify_ppg_data || last_ppg_notify_ok_ms <= 0)
+    {
+        return false;
+    }
+
+    return (k_uptime_get() - last_ppg_notify_ok_ms) < 2000;
+}
+
+bool tgm_service_sensor_stream_stale(void)
+{
+    if (!ble_is_connected() || !(notify_ppg_data || notify_acc_data))
+    {
+        return false;
+    }
+
+    /* Below 5%: sensors are meant to be silent; do not drop the BLE link. */
+    if (battery_below_soft_floor())
+    {
+        return false;
+    }
+
+    const int64_t now = k_uptime_get();
+
+    if (notify_ppg_data)
+    {
+        int64_t last = last_ppg_notify_ok_ms > 0 ? last_ppg_notify_ok_ms
+                                                : sensor_stream_watch_ms;
+        if (last <= 0)
+        {
+            return false;
+        }
+        return (now - last) >= SENSOR_NOTIFY_STALL_MS;
+    }
+
+    int64_t last = last_acc_notify_ok_ms > 0 ? last_acc_notify_ok_ms
+                                            : sensor_stream_watch_ms;
+    if (last <= 0)
+    {
+        return false;
+    }
+    return (now - last) >= SENSOR_NOTIFY_STALL_MS;
+}
+
+void tgm_service_clear_optical_leds(void)
+{
+    tgm_service_suspend_sensor_streams();
+}
+
+void tgm_service_try_start_ppg_acc(void)
+{
+    tgm_service_resume_sensor_streams();
+}
+
+bool tgm_service_sensor_notify_enabled(void)
+{
+    return notify_ppg_data || notify_acc_data;
+}
+
+bool tgm_service_mode3_pad_grace_active(void)
+{
+    return mode3_pad_grace_until_ms > 0 && k_uptime_get() < mode3_pad_grace_until_ms;
+}
+
+bool tgm_service_mode3_soft_floor_hold_active(void)
+{
+    return mode3_soft_floor_hold_until_ms > 0 &&
+           k_uptime_get() < mode3_soft_floor_hold_until_ms;
 }
 
 bool tgm_service_connect_probe_active(void)
 {
     return connect_probe_active;
+}
+
+bool tgm_service_worn_from_temperature_allowed(void)
+{
+	if (connect_probe_active)
+	{
+		return false;
+	}
+
+	if (CONFIG_TGM_POST_PROBE_WORN_LOCKOUT_S <= 0)
+	{
+		return true;
+	}
+
+	return k_uptime_get() >= worn_temp_lockout_until_ms;
 }
 
 static void tgm_service_probe_begin(void)
@@ -358,6 +568,14 @@ static void tgm_service_probe_begin(void)
     }
 
     connect_probe_active = true;
+
+    if (CONFIG_TGM_CONNECT_PROBE_DURATION_S > 0 &&
+        CONFIG_TGM_POST_PROBE_WORN_LOCKOUT_S > 0)
+    {
+        worn_temp_extend_lockout(CONFIG_TGM_CONNECT_PROBE_DURATION_S +
+                                 CONFIG_TGM_POST_PROBE_WORN_LOCKOUT_S);
+    }
+
     LOG_INF("Connect probe: streaming enabled for %d s (worn=%d)",
             CONFIG_TGM_CONNECT_PROBE_DURATION_S, device_worn);
 
@@ -377,6 +595,12 @@ static void tgm_service_probe_end(void)
     }
 
     connect_probe_active = false;
+
+    if (CONFIG_TGM_POST_PROBE_WORN_LOCKOUT_S > 0)
+    {
+        worn_temp_extend_lockout(CONFIG_TGM_POST_PROBE_WORN_LOCKOUT_S);
+    }
+
     LOG_INF("Connect probe ended (worn=%d)", device_worn);
 
     if (tgm_service_cb && tgm_service_cb->probe_end_cb)
@@ -384,7 +608,7 @@ static void tgm_service_probe_end(void)
         tgm_service_cb->probe_end_cb();
     }
 
-    if (!device_worn)
+    if (!ble_is_connected())
     {
         tgm_service_suspend_sensor_streams();
     }
@@ -411,9 +635,44 @@ static void tgm_service_resume_sensor_streams(void)
 
 static void tgm_service_suspend_sensor_streams(void)
 {
+    ir_pulse_reset();
+    (void)ppg_set_led_pa(PPG_LED_RED, 0);
+    (void)ppg_set_led_pa(PPG_LED_IR, 0);
+    (void)ppg_set_led_pa(PPG_LED_GREEN, 0);
     ppg_set_notify_poll(false);
     (void)ppg_stop();
     (void)acc_stop();
+}
+
+void tgm_service_set_on_dock(bool on_dock)
+{
+    charger_on_dock = on_dock;
+}
+
+uint8_t tgm_service_get_user_device_mode(void)
+{
+    return user_device_mode;
+}
+
+void tgm_service_set_user_device_mode(uint8_t mode)
+{
+    if (mode > 3u) {
+        return;
+    }
+    if (user_device_mode == mode) {
+        return;
+    }
+    user_device_mode = mode;
+    if (mode != 3u) {
+        mode3_pad_grace_until_ms = 0;
+        mode3_soft_floor_hold_until_ms = 0;
+    }
+    tgm_service_fw_log_printf("fw: user_mode=%u (internal)", user_device_mode);
+}
+
+uint16_t tgm_service_get_debug_reboot_interval_s(void)
+{
+    return debug_reboot_interval_s;
 }
 
 void tgm_service_set_device_worn(bool worn)
@@ -424,16 +683,8 @@ void tgm_service_set_device_worn(bool worn)
     }
 
     device_worn = worn;
-    LOG_INF("Streaming policy: %s", worn ? "on-body (full rate)" : "off-body (minimal BLE)");
-
-    if (worn)
-    {
-        tgm_service_resume_sensor_streams();
-    }
-    else if (!connect_probe_active)
-    {
-        tgm_service_suspend_sensor_streams();
-    }
+    LOG_INF("Worn status: %s (PPG/ACC follow BLE, not worn)",
+            worn ? "on-body" : "off-body");
 }
 
 static void tgm_service_battery_notify_work_handler(struct k_work *work)
@@ -475,6 +726,10 @@ static void tgm_service_ppg_start_work_handler(struct k_work *work)
 
     if (!notify_ppg_data || !streaming_allowed())
     {
+        tgm_service_fw_log_printf("fw: ppg_start skip ccc=%u conn=%u floor=%u",
+                                  notify_ppg_data ? 1u : 0u,
+                                  ble_is_connected() ? 1u : 0u,
+                                  battery_below_soft_floor() ? 1u : 0u);
         return;
     }
 
@@ -482,10 +737,20 @@ static void tgm_service_ppg_start_work_handler(struct k_work *work)
     if (err)
     {
         LOG_WRN("Deferred PPG start failed (%d)", err);
+        tgm_service_fw_log_printf("fw: ppg_start fail %d", err);
+    }
+    else
+    {
+        tgm_service_fw_log_printf("fw: ppg_start ok");
     }
 
     ppg_set_notify_poll(true);
     ppg_poll_once();
+
+    if (tgm_service_cb && tgm_service_cb->ppg_stream_start_cb)
+    {
+        tgm_service_cb->ppg_stream_start_cb();
+    }
 }
 
 static void tgm_service_acc_start_work_handler(struct k_work *work)
@@ -511,6 +776,9 @@ static void tgm_service_ccc_ppg_data_cfg_changed(const struct bt_gatt_attr *attr
     if (notify_ppg_data)
     {
         link_keepalive_arm();
+        sensor_stream_watch_ms = k_uptime_get();
+        last_ppg_notify_ok_ms = 0;
+        (void)k_work_reschedule(&sensor_health_work, K_SECONDS(1));
         (void)k_work_submit(&ppg_start_work);
     }
     else
@@ -527,6 +795,12 @@ static void tgm_service_ccc_acc_data_cfg_changed(const struct bt_gatt_attr *attr
     if (notify_acc_data)
     {
         link_keepalive_arm();
+        if (sensor_stream_watch_ms == 0)
+        {
+            sensor_stream_watch_ms = k_uptime_get();
+        }
+        last_acc_notify_ok_ms = 0;
+        (void)k_work_reschedule(&sensor_health_work, K_SECONDS(1));
         (void)k_work_submit(&acc_start_work);
     }
     else
@@ -583,12 +857,53 @@ static void tgm_service_ccc_write_ppg_reg_data_cfg_changed(const struct bt_gatt_
 
 static void tgm_service_ccc_status_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
-    LOG_INF("Enabled notifications for device status");
+    LOG_INF("Device status notifications %s", value == BT_GATT_CCC_NOTIFY ? "enabled" : "disabled");
     notify_status = (value == BT_GATT_CCC_NOTIFY);
     if (notify_status)
     {
         link_keepalive_arm();
+        (void)k_work_reschedule(&status_open_work, K_MSEC(250));
     }
+    else
+    {
+        (void)k_work_cancel_delayable(&status_open_work);
+    }
+}
+
+static void status_open_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    if (!notify_status)
+    {
+        return;
+    }
+
+    tgm_service_refresh_chrsts_bench();
+
+    if (tgm_service_cb && tgm_service_cb->diagnostic_snapshot_cb)
+    {
+        tgm_service_cb->diagnostic_snapshot_cb();
+    }
+}
+
+static void fw_log_open_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    if (!notify_fw_log)
+    {
+        return;
+    }
+
+    tgm_service_refresh_chrsts_bench();
+    tgm_service_fw_log_printf("fw: log stream open");
+    tgm_service_fw_log_printf(
+        "fw: chrsts open phy=%u dt=%u act=%u maj=%u raw=%u on=%u stab=%u mis=%u",
+        fw_config_state.chrsts_phy, fw_config_state.chrsts_dt,
+        fw_config_state.chrsts_active, fw_config_state.chrsts_maj,
+        fw_config_state.chrsts_dock_raw, fw_config_state.chrsts_on_dock,
+        fw_config_state.chrsts_stable_s, fw_config_state.chrsts_mismatch);
 }
 
 static void tgm_service_ccc_fw_log_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
@@ -598,11 +913,15 @@ static void tgm_service_ccc_fw_log_cfg_changed(const struct bt_gatt_attr *attr, 
     if (notify_fw_log)
     {
         link_keepalive_arm();
-        tgm_service_fw_log_printf("fw: log stream open");
+        (void)k_work_reschedule(&fw_log_open_work, K_MSEC(250));
         if (stream_stats_period_s > 0)
         {
             k_work_reschedule(&stream_stats_work, K_SECONDS(stream_stats_period_s));
         }
+    }
+    else
+    {
+        (void)k_work_cancel_delayable(&fw_log_open_work);
     }
 }
 
@@ -621,6 +940,8 @@ static ssize_t get_fw_config_state(struct bt_conn *conn, const struct bt_gatt_at
                                    void *buf, uint16_t len, uint16_t offset)
 {
     const struct tgm_fw_config_state_t *value = attr->user_data;
+
+    tgm_service_refresh_chrsts_bench();
     return bt_gatt_attr_read(conn, attr, buf, len, offset, value, sizeof(*value));
 }
 
@@ -672,6 +993,8 @@ static ssize_t get_fw_version(struct bt_conn *conn, const struct bt_gatt_attr *a
 static ssize_t get_status_value(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf, uint16_t len, uint16_t offset)
 {
     const struct tgm_service_status_t *value = attr->user_data;
+
+    tgm_service_refresh_chrsts_bench();
 
     LOG_INF("Reading device status");
     return bt_gatt_attr_read(conn, attr, buf, len, offset, value, sizeof(*value));
@@ -823,6 +1146,68 @@ enum {
     TGM_ATTR_FW_CONFIG_STATE_VALUE = 32,
 };
 
+static int64_t newest_subscribed_notify_ok_ms(void)
+{
+    int64_t newest = 0;
+
+    if (notify_ppg_data && last_ppg_notify_ok_ms > newest)
+    {
+        newest = last_ppg_notify_ok_ms;
+    }
+    if (notify_acc_data && last_acc_notify_ok_ms > newest)
+    {
+        newest = last_acc_notify_ok_ms;
+    }
+    if (notify_battery && last_bat_notify_ok_ms > newest)
+    {
+        newest = last_bat_notify_ok_ms;
+    }
+    if (notify_fw_log && last_fwlog_notify_ok_ms > newest)
+    {
+        newest = last_fwlog_notify_ok_ms;
+    }
+    return newest;
+}
+
+static void sensor_health_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    if (!ble_is_connected() || !(notify_ppg_data || notify_acc_data))
+    {
+        return;
+    }
+
+    const int64_t now = k_uptime_get();
+
+    if (notify_ppg_data)
+    {
+        const int64_t last_ppg = (last_ppg_notify_ok_ms > 0) ? last_ppg_notify_ok_ms
+                                                             : sensor_stream_watch_ms;
+
+        if (last_ppg > 0 && (now - last_ppg) >= SENSOR_NOTIFY_STALL_MS)
+        {
+            LOG_WRN("PPG notify stall %d ms — recovering BLE", (int)(now - last_ppg));
+            tgm_service_fw_log_printf("fw: ppg notify stall %d", (int)(now - last_ppg));
+            ble_force_recover("ppg notify stall");
+            return;
+        }
+    }
+
+    const int64_t last_any = newest_subscribed_notify_ok_ms();
+    const int64_t last_all = (last_any > 0) ? last_any : sensor_stream_watch_ms;
+
+    if (last_all > 0 && (now - last_all) >= SENSOR_NOTIFY_STALL_MS)
+    {
+        LOG_WRN("All notify stall %d ms — recovering BLE", (int)(now - last_all));
+        tgm_service_fw_log_printf("fw: all notify stall %d", (int)(now - last_all));
+        ble_force_recover("all notify stall");
+        return;
+    }
+
+    (void)k_work_reschedule(&sensor_health_work, K_SECONDS(1));
+}
+
 int tgm_service_init(struct tgm_service_cb *callbacks)
 {
     if (callbacks)
@@ -837,6 +1222,9 @@ int tgm_service_init(struct tgm_service_cb *callbacks)
 
     k_work_init_delayable(&connect_probe_end_work, connect_probe_end_work_handler);
     k_work_init_delayable(&stream_stats_work, stream_stats_work_handler);
+    k_work_init_delayable(&sensor_health_work, sensor_health_work_handler);
+    k_work_init_delayable(&fw_log_open_work, fw_log_open_work_handler);
+    k_work_init_delayable(&status_open_work, status_open_work_handler);
     stream_stats_period_s = fw_config_state.stream_stats_period_s;
 
     return 0;
@@ -847,13 +1235,13 @@ void tgm_service_on_connected(void)
     gatt_tx_quiet_until_ms = 0;
     link_keepalive_arm();
 
-    if (CONFIG_TGM_CONNECT_PROBE_DURATION_S > 0)
+    if (CONFIG_TGM_CONNECT_PROBE_DURATION_S > 0 && !charger_on_dock)
     {
         tgm_service_probe_begin();
         (void)k_work_reschedule(&connect_probe_end_work,
                                 K_SECONDS(CONFIG_TGM_CONNECT_PROBE_DURATION_S));
     }
-    else if (device_worn)
+    else
     {
         tgm_service_resume_sensor_streams();
     }
@@ -878,11 +1266,23 @@ void tgm_service_on_disconnect(void)
     notify_status = false;
     notify_fw_log = false;
     notify_fw_config_state = false;
+    last_ppg_notify_ok_ms = 0;
+    last_acc_notify_ok_ms = 0;
+    last_bat_notify_ok_ms = 0;
+    last_fwlog_notify_ok_ms = 0;
+    sensor_stream_watch_ms = 0;
 
     k_work_cancel_delayable(&stream_stats_work);
+    k_work_cancel_delayable(&sensor_health_work);
+    k_work_cancel_delayable(&fw_log_open_work);
+    k_work_cancel_delayable(&status_open_work);
     gatt_tx_quiet_until_ms = 0;
     ppg_set_notify_poll(false);
     k_work_cancel_delayable(&link_keepalive_work);
+
+    /* Collect only while a central is connected. Stop FIFO IRQ / ACC on every
+     * link drop, including worn — resume after reconnect + CCC.
+     */
     tgm_service_suspend_sensor_streams();
 
     if (tgm_service_cb && tgm_service_cb->link_disconnected_cb)
@@ -900,8 +1300,106 @@ int tgm_service_send_battery_notify(int32_t battery_value)
 
     bat_value = battery_value;
 
-    return gatt_notify_checked(&tgm_service_svc.attrs[TGM_ATTR_BAT_VALUE],
-                                 &bat_value, sizeof(bat_value), "battery", true);
+    const int err = gatt_notify_checked(&tgm_service_svc.attrs[TGM_ATTR_BAT_VALUE],
+                                        &bat_value, sizeof(bat_value), "battery", true);
+    if (!err)
+    {
+        last_bat_notify_ok_ms = k_uptime_get();
+    }
+    return err;
+}
+
+static void ir_pulse_set_latched(bool on)
+{
+    if (ir_pulse_latched == on) {
+        return;
+    }
+
+    ir_pulse_latched = on;
+    tgm_service_fw_log_printf("fw: ir_pulse worn=%u ac=%u dc=%u",
+                              on ? 1u : 0u, ir_pulse_ac_lp, ir_pulse_dc);
+    if (tgm_service_cb && tgm_service_cb->ir_pulse_worn_cb) {
+        tgm_service_cb->ir_pulse_worn_cb(on);
+    }
+}
+
+static void ir_pulse_reset(void)
+{
+    ir_pulse_filt_init = false;
+    ir_pulse_dc = 0;
+    ir_pulse_ac_lp = 0;
+    ir_pulse_good_since_ms = 0;
+    ir_pulse_bad_since_ms = 0;
+    ir_pulse_set_latched(false);
+}
+
+static void ir_pulse_feed(const struct ppg_sample *samples, uint8_t n)
+{
+    const int64_t now = k_uptime_get();
+
+    if (samples == NULL || n == 0) {
+        return;
+    }
+
+    for (uint8_t i = 0; i < n; i++) {
+        const uint32_t ir = samples[i].ir;
+
+        if (!ir_pulse_filt_init) {
+            ir_pulse_dc = ir;
+            ir_pulse_ac_lp = 0;
+            ir_pulse_filt_init = true;
+            continue;
+        }
+
+        int32_t dc = (int32_t)ir_pulse_dc;
+        int32_t x = (int32_t)ir;
+        int32_t resid = x - dc;
+
+        if (resid < 0) {
+            resid = -resid;
+        }
+        dc += (x - dc) / 32;
+        if (dc < 0) {
+            dc = 0;
+        }
+        ir_pulse_dc = (uint32_t)dc;
+        ir_pulse_ac_lp += ((uint32_t)resid - ir_pulse_ac_lp) / 8;
+    }
+
+    if (ir_pulse_dc < IR_PULSE_DC_MIN) {
+        ir_pulse_good_since_ms = 0;
+        if (ir_pulse_bad_since_ms == 0) {
+            ir_pulse_bad_since_ms = now;
+        }
+        if ((now - ir_pulse_bad_since_ms) >= IR_PULSE_HOLD_MS) {
+            ir_pulse_set_latched(false);
+        }
+        return;
+    }
+
+    /* PI on ≈ 0.0005 (ac*10000 >= dc*5); off ≈ 0.0002 (ac*10000 < dc*2). */
+    const bool pulse_on = ((uint64_t)ir_pulse_ac_lp * 10000ULL) >=
+                          ((uint64_t)ir_pulse_dc * 5ULL);
+    const bool pulse_off = ((uint64_t)ir_pulse_ac_lp * 10000ULL) <
+                           ((uint64_t)ir_pulse_dc * 2ULL);
+
+    if (pulse_on) {
+        ir_pulse_bad_since_ms = 0;
+        if (ir_pulse_good_since_ms == 0) {
+            ir_pulse_good_since_ms = now;
+        }
+        if ((now - ir_pulse_good_since_ms) >= IR_PULSE_ON_MS) {
+            ir_pulse_set_latched(true);
+        }
+    } else if (pulse_off) {
+        ir_pulse_good_since_ms = 0;
+        if (ir_pulse_bad_since_ms == 0) {
+            ir_pulse_bad_since_ms = now;
+        }
+        if ((now - ir_pulse_bad_since_ms) >= IR_PULSE_HOLD_MS) {
+            ir_pulse_set_latched(false);
+        }
+    }
 }
 
 int tgm_service_send_ppg_notify(struct ppg_sample *ppg_data, uint8_t sample_cnt)
@@ -926,6 +1424,8 @@ int tgm_service_send_ppg_notify(struct ppg_sample *ppg_data, uint8_t sample_cnt)
         sample_cnt = CONFIG_PPG_SAMPLES_PER_FRAME;
     }
 
+    ir_pulse_feed(ppg_data, sample_cnt);
+
     tgm_service_ppg_data.frame_counter = ppg_frame_counter++;
     memcpy(tgm_service_ppg_data.ppg_data, ppg_data,
            sizeof(struct ppg_sample) * sample_cnt);
@@ -942,6 +1442,7 @@ int tgm_service_send_ppg_notify(struct ppg_sample *ppg_data, uint8_t sample_cnt)
     else
     {
         ppg_notify_ok++;
+        last_ppg_notify_ok_ms = k_uptime_get();
     }
     return err;
 }
@@ -984,6 +1485,7 @@ int tgm_service_send_acc_notify(struct acc_sample *acc_data, uint8_t sample_cnt)
     else
     {
         acc_notify_ok++;
+        last_acc_notify_ok_ms = k_uptime_get();
     }
     return err;
 }
@@ -1030,20 +1532,22 @@ int tgm_service_send_write_ppg_reg_notify(uint8_t ppg_reg_data)
                                  &ppg_reg_data, sizeof(ppg_reg_data), "ppg-reg-write", true);
 }
 
-int tgm_service_send_status_notify(bool charging, bool worn, uint8_t state, uint8_t battery_pct)
+int tgm_service_send_status_notify(bool on_dock, bool worn, uint8_t state,
+				   uint8_t battery_pct, bool charge_active)
 {
-    device_status.charging = charging ? 1 : 0;
+    device_status.on_dock = on_dock ? 1 : 0;
     device_status.worn = worn ? 1 : 0;
     device_status.device_state = state;
     device_status.battery_pct = battery_pct;
+    device_status.charge_active = charge_active ? 1 : 0;
 
     if (!notify_status)
     {
         return -EACCES;
     }
 
-    LOG_INF("Sending status: charging=%d, worn=%d, state=%d, battery=%d%%",
-            charging, worn, state, battery_pct);
+    LOG_INF("Sending status: on_dock=%d, worn=%d, state=%d, battery=%d%%, charge_active=%d",
+            on_dock, worn, state, battery_pct, charge_active);
 
     return gatt_notify_checked(&tgm_service_svc.attrs[TGM_ATTR_STATUS_VALUE],
                                  &device_status, sizeof(device_status), "status", true);
@@ -1066,6 +1570,7 @@ int tgm_service_send_fw_log_notify(const void *data, uint16_t len)
     else
     {
         fwlog_sent++;
+        last_fwlog_notify_ok_ms = k_uptime_get();
     }
     return err;
 }
@@ -1095,10 +1600,13 @@ void tgm_service_fw_log_printf(const char *fmt, ...)
 
 void tgm_service_emit_diagnostic_snapshot(void)
 {
+    tgm_service_refresh_chrsts_bench();
+
     tgm_service_fw_log_printf(
-        "fw: snap chg=%u worn=%u st=%u bat=%u probe=%u",
-        device_status.charging, device_status.worn, device_status.device_state,
-        device_status.battery_pct, connect_probe_active ? 1u : 0u);
+        "fw: snap dock=%u worn=%u st=%u bat=%u chg=%u probe=%u",
+        device_status.on_dock, device_status.worn, device_status.device_state,
+        device_status.battery_pct, device_status.charge_active,
+        connect_probe_active ? 1u : 0u);
 
     if (notify_status)
     {

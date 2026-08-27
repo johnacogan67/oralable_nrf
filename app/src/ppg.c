@@ -8,6 +8,7 @@
 
 #include "tgm_service.h"
 #include "ppg.h"
+#include "sensor_i2c.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ppg, CONFIG_APP_LOG_LEVEL);
@@ -26,13 +27,17 @@ struct ppg_reg_work_t
 static void ppg_reg_work_handler(struct k_work *work);
 
 static struct ppg_reg_work_t ppg_reg_work;
+static struct k_work_delayable ppg_poll_work;
+static bool ppg_running;
+static bool ppg_notify_poll;
 
 #if CONFIG_MAXM86161
 #include <app/drivers/maxm86161.h>
 
 #define MAXM86161_NODE DT_NODELABEL(maxm86161)
-#define PPG_INT_PIN 20
-static const struct device *ppg_int_port = DEVICE_DT_GET(DT_NODELABEL(gpio0));
+/* int-gpios carries GPIO_ACTIVE_LOW|GPIO_PULL_UP from DT (open-drain FIFO IRQ). */
+static const struct gpio_dt_spec ppg_int =
+	GPIO_DT_SPEC_GET(MAXM86161_NODE, int_gpios);
 
 static struct i2c_dt_spec i2c = I2C_DT_SPEC_GET(MAXM86161_NODE);
 #else
@@ -52,7 +57,7 @@ static void ppg_int_handler(const struct device *dev, struct gpio_callback *cb, 
 {
     ARG_UNUSED(dev);
     ARG_UNUSED(cb);
-    if (pins & BIT(PPG_INT_PIN))
+    if (pins & BIT(ppg_int.pin))
     {
         // Read the PPG data outside of the ISR
         k_work_submit(&read_ppg_data_work);
@@ -61,28 +66,67 @@ static void ppg_int_handler(const struct device *dev, struct gpio_callback *cb, 
     return;
 }
 
-static void ppg_read_data(struct k_work *work)
+static void ppg_read_and_notify(void)
 {
     struct ppg_sample ppg_data[CONFIG_PPG_SAMPLES_PER_FRAME];
     uint8_t sample_count;
 
-    // Get the PPG data
+    sensor_i2c_lock();
     int err = ppg_sensor_get_data(&i2c, ppg_data, &sample_count);
+    sensor_i2c_unlock();
     if (err)
     {
         LOG_ERR("Failed to read PPG data");
         return;
     }
 
-    // Notify the client of the PPG data
-    err = tgm_service_send_ppg_notify(ppg_data, sample_count);
-    if (err)
+    if (sample_count == 0)
     {
-        LOG_DBG("Failed to send PPG data notification");
         return;
     }
 
-    return;
+    err = tgm_service_send_ppg_notify(ppg_data, sample_count);
+    if (err && err != -EACCES)
+    {
+        LOG_WRN("PPG notify failed (%d)", err);
+    }
+}
+
+static void ppg_read_data(struct k_work *work)
+{
+    ARG_UNUSED(work);
+    ppg_read_and_notify();
+}
+
+static void ppg_poll_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    if (!ppg_notify_poll)
+    {
+        return;
+    }
+
+    ppg_read_and_notify();
+    k_work_reschedule(&ppg_poll_work, K_MSEC(500));
+}
+
+void ppg_poll_once(void)
+{
+    k_work_submit(&read_ppg_data_work);
+}
+
+void ppg_set_notify_poll(bool enabled)
+{
+    ppg_notify_poll = enabled;
+    if (enabled)
+    {
+        k_work_reschedule(&ppg_poll_work, K_MSEC(500));
+    }
+    else
+    {
+        k_work_cancel_delayable(&ppg_poll_work);
+    }
 }
 
 int ppg_init(void)
@@ -94,15 +138,14 @@ int ppg_init(void)
         return -ENODEV;
     }
 
-    // Initialize the GPIO port
-    if (!device_is_ready(ppg_int_port))
+    if (!gpio_is_ready_dt(&ppg_int))
     {
         LOG_ERR("GPIO device not ready during initialization of PPG sensor");
         return -ENODEV;
     }
 
-    // Intialize the int pin as input
-    int err = gpio_pin_configure(ppg_int_port, PPG_INT_PIN, GPIO_INPUT | GPIO_PULL_UP);
+    /* GPIO_INPUT | DT flags (ACTIVE_LOW + PULL_UP) so EDGE_TO_ACTIVE is falling. */
+    int err = gpio_pin_configure_dt(&ppg_int, GPIO_INPUT);
     if (err)
     {
         LOG_ERR("Failed to configure PPG sensor int pin as input");
@@ -110,8 +153,8 @@ int ppg_init(void)
     }
 
     // Initialize the interrupt callback
-    gpio_init_callback(&ppg_int_cb, ppg_int_handler, BIT(PPG_INT_PIN));
-    err = gpio_add_callback(ppg_int_port, &ppg_int_cb);
+    gpio_init_callback(&ppg_int_cb, ppg_int_handler, BIT(ppg_int.pin));
+    err = gpio_add_callback(ppg_int.port, &ppg_int_cb);
     if (err)
     {
         LOG_ERR("Failed to add callback to PPG sensor int pin");
@@ -120,6 +163,7 @@ int ppg_init(void)
 
     // Initialize the work item
     k_work_init(&read_ppg_data_work, ppg_read_data);
+    k_work_init_delayable(&ppg_poll_work, ppg_poll_work_handler);
     k_work_init(&ppg_reg_work.reg_work, ppg_reg_work_handler);
 
     return 0;
@@ -127,50 +171,130 @@ int ppg_init(void)
 
 int ppg_start(void)
 {
-    // Enable the interrupt
-    int err = gpio_pin_interrupt_configure(ppg_int_port, PPG_INT_PIN, GPIO_INT_EDGE_TO_ACTIVE);
-    if (err)
-    {
-        LOG_ERR("Failed to configure PPG sensor int pin interrupt");
-        return err;
-    }
+	int err;
 
-    // Start the PPG sensor
-    err = ppg_sensor_start(&i2c);
-    if (err)
-    {
-        LOG_ERR("Failed to start PPG sensor");
-        return err;
-    }
+	if (ppg_running)
+	{
+		err = gpio_pin_interrupt_configure_dt(&ppg_int, GPIO_INT_EDGE_TO_ACTIVE);
+		if (err)
+		{
+			LOG_ERR("Failed to re-enable PPG sensor int interrupt");
+		}
 
-    return 0;
+		return err;
+	}
+
+	sensor_i2c_lock();
+	err = ppg_sensor_start(&i2c);
+	sensor_i2c_unlock();
+	if (err)
+	{
+		LOG_ERR("Failed to start PPG sensor");
+		return err;
+	}
+
+	err = gpio_pin_interrupt_configure_dt(&ppg_int, GPIO_INT_EDGE_TO_ACTIVE);
+	if (err)
+	{
+		LOG_ERR("Failed to configure PPG sensor int pin interrupt");
+		sensor_i2c_lock();
+		(void)ppg_sensor_stop(&i2c);
+		sensor_i2c_unlock();
+		return err;
+	}
+
+	ppg_running = true;
+	return 0;
+}
+
+int ppg_stop_streaming(void)
+{
+	int err;
+
+	ppg_set_notify_poll(false);
+
+	if (!ppg_running)
+	{
+		return 0;
+	}
+
+	err = gpio_pin_interrupt_configure_dt(&ppg_int, GPIO_INT_DISABLE);
+	if (err)
+	{
+		LOG_ERR("Failed to disable PPG sensor int pin interrupt");
+		return err;
+	}
+
+	return 0;
+}
+
+int ppg_ensure_awake(void)
+{
+	int err;
+
+	if (!ppg_running)
+	{
+		return ppg_start();
+	}
+
+	sensor_i2c_lock();
+	err = ppg_sensor_ensure_awake(&i2c);
+	sensor_i2c_unlock();
+	if (err)
+	{
+		LOG_WRN("PPG ensure_awake failed (%d), restarting sensor", err);
+		ppg_running = false;
+		return ppg_start();
+	}
+
+	return 0;
+}
+
+int ppg_ensure_awake_status_leds(void)
+{
+	int err = ppg_ensure_awake();
+
+	if (err)
+	{
+		return err;
+	}
+
+	return ppg_stop_streaming();
 }
 
 int ppg_stop(void)
 {
-    // Stop the PPG sensor
-    int err = ppg_sensor_stop(&i2c);
-    if (err)
+    if (!ppg_running)
     {
-        LOG_ERR("Failed to stop PPG sensor");
-        return err;
+        return 0;
     }
 
-    // Disable the interrupt
-    err = gpio_pin_interrupt_configure(ppg_int_port, PPG_INT_PIN, GPIO_INT_DISABLE);
+    int err = gpio_pin_interrupt_configure_dt(&ppg_int, GPIO_INT_DISABLE);
     if (err)
     {
         LOG_ERR("Failed to disable PPG sensor int pin interrupt");
         return err;
     }
 
+    sensor_i2c_lock();
+    err = ppg_sensor_stop(&i2c);
+    sensor_i2c_unlock();
+    if (err)
+    {
+        LOG_ERR("Failed to stop PPG sensor");
+        return err;
+    }
+
+    ppg_running = false;
     return 0;
 }
 
 int ppg_read_reg(uint8_t reg)
 {
     uint8_t data;
+    sensor_i2c_lock();
     int err = ppg_sensor_read_reg(&i2c, reg, &data);
+    sensor_i2c_unlock();
     if (err)
     {
         LOG_ERR("Failed to read PPG sensor register 0x%02X", reg);
@@ -182,7 +306,9 @@ int ppg_read_reg(uint8_t reg)
 
 int ppg_write_reg(uint8_t reg, uint8_t data)
 {
+    sensor_i2c_lock();
     int err = ppg_sensor_write_reg(&i2c, reg, data);
+    sensor_i2c_unlock();
     if (err)
     {
         LOG_ERR("Failed to write PPG sensor register 0x%02X", reg);
@@ -198,9 +324,11 @@ static void ppg_reg_work_handler(struct k_work *work)
     struct ppg_reg_work_t *ppg_reg_work = CONTAINER_OF(work, struct ppg_reg_work_t, reg_work);
 
     uint8_t final_reg_data;
+    sensor_i2c_lock();
     if (ppg_reg_work->read)
     {
         err = ppg_sensor_read_reg(&i2c, ppg_reg_work->reg, &final_reg_data);
+        sensor_i2c_unlock();
         if (err)
         {
             LOG_ERR("Failed to read PPG sensor register 0x%02X", ppg_reg_work->reg);
@@ -214,14 +342,15 @@ static void ppg_reg_work_handler(struct k_work *work)
         err = ppg_sensor_write_reg(&i2c, ppg_reg_work->reg, ppg_reg_work->data);
         if (err)
         {
+            sensor_i2c_unlock();
             LOG_ERR("Failed to write PPG sensor register 0x%02X", ppg_reg_work->reg);
             return;
         }
         err = ppg_sensor_read_reg(&i2c, ppg_reg_work->reg, &final_reg_data);
+        sensor_i2c_unlock();
         if (err)
         {
             LOG_ERR("Failed to read PPG sensor register 0x%02X after writing", ppg_reg_work->reg);
-            // Allow to continue since the write was successful
         }
 
         err = tgm_service_send_write_ppg_reg_notify(final_reg_data);

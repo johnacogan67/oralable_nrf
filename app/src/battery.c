@@ -42,9 +42,15 @@ LOG_MODULE_REGISTER(battery, CONFIG_APP_LOG_LEVEL);
 #define IMPLAUSIBLE_RAW_MV_MIN  50
 #define IMPLAUSIBLE_RAW_MV_MAX  4000
 
-/* CG-320B discharge curve: 4.35V = 100%, 3.0V = 0% */
+/* CG-320B user gauge (FW >= 1.0.68): 4.35V = 100%, 3.61V = remapped 0%.
+ * Chemistry still discharges toward ~3.0 V; 3.61 V is operational empty so
+ * BLE/wireless recovery stay reliable. True protect remains CRITICAL_LOW.
+ */
 #define CG320B_VMAX_MV 4350
-#define CG320B_VMIN_MV  3000
+#define CG320B_VMIN_MV  3610
+
+/* Chemistry empty for diagnostic % only (not the user gauge). */
+#define CG320B_CHEMISTRY_VMIN_MV 3000
 
 /* Critical low threshold - protects cell from over-discharge */
 #define CRITICAL_LOW_VOLTAGE_MV 2800
@@ -118,143 +124,110 @@ static bool is_plausible_battery_mv(int32_t mv)
     return (mv >= BATTERY_VOLTAGE_MIN_MV && mv <= BATTERY_VOLTAGE_MAX_MV);
 }
 
-static void take_battery_measurement(struct k_work *work)
+static int32_t battery_adc_sample_mv(void)
 {
     int err;
 
-    // Enable the battery voltage divider
-    err = gpio_pin_set_dt(&battery_enable, 1);
-    if (err)
-    {
-        LOG_ERR("Failed to enable battery voltage divider, err %d", err);
-        // Try again later
-        k_work_reschedule(&battery_measurement_work, K_SECONDS(1));
-        return;
-    }
-
-    // Wait for the voltage to stabilize
-    k_sleep(K_MSEC(1));
-
-    // Read the battery voltage
+    /* P0.10 (baten) is the boost-regulator latch on REV10 — keep it HIGH. */
     err = adc_read(adc_chan0.dev, &sequence);
     if (err)
     {
         LOG_ERR("ADC read failed, err %d", err);
-    }
-    else
-    {
-        int32_t raw_mv = (int32_t)adc_buf;
-
-        err = adc_raw_to_millivolts_dt(&adc_chan0, &raw_mv);
-        if (err)
-        {
-            LOG_ERR("ADC raw to millivolts failed, err %d", err);
-        }
-        else if (raw_mv < IMPLAUSIBLE_RAW_MV_MIN || raw_mv > IMPLAUSIBLE_RAW_MV_MAX)
-        {
-            /* Reject single bogus samples (typically caused by transient pin
-             * contention while PPG/ACC are powering up, or a sign-mismatch
-             * giving 65535 → ~57.6 V). DO NOT update battery_value, DO NOT
-             * touch the smoothing history, and DO NOT fall into the
-             * critical-low shutdown path on the basis of one fluke reading.
-             */
-            LOG_WRN("Battery: implausible raw_mv=%d (window %d..%dmV) — sample discarded",
-                    raw_mv, IMPLAUSIBLE_RAW_MV_MIN, IMPLAUSIBLE_RAW_MV_MAX);
-        }
-        else
-        {
-            /* Scale to actual battery voltage */
-            /* Default scaling: SAADC pin sees Vbat / 11. */
-            const int32_t v_div = raw_mv * VOLTAGE_DIVIDER_SCALE;
-            /* Fallbacks for misconfigured gain/overlay builds:
-             * - Some boards/builds may end up with an effective 6x mismatch in adc_raw_to_millivolts_dt().
-             * - Some hardware variants may not match the assumed divider scale.
-             */
-            const int32_t v_nodiv = raw_mv;
-            const int32_t v_div_over6 = (raw_mv * VOLTAGE_DIVIDER_SCALE) / 6;
-            const int32_t v_nodiv_over6 = raw_mv / 6;
-
-            int32_t chosen = v_div;
-            if (!is_plausible_battery_mv(chosen)) {
-                if (is_plausible_battery_mv(v_div_over6)) {
-                    chosen = v_div_over6;
-                    LOG_WRN("Battery scaling fallback: using divider/6 (raw_mv=%d -> %dmV)", raw_mv, chosen);
-                } else if (is_plausible_battery_mv(v_nodiv)) {
-                    chosen = v_nodiv;
-                    LOG_WRN("Battery scaling fallback: using no-divider (raw_mv=%d -> %dmV)", raw_mv, chosen);
-                } else if (is_plausible_battery_mv(v_nodiv_over6)) {
-                    chosen = v_nodiv_over6;
-                    LOG_WRN("Battery scaling fallback: using no-divider/6 (raw_mv=%d -> %dmV)", raw_mv, chosen);
-                } else {
-                    /* Last resort: clamp into range to avoid emitting nonsense values. */
-                    if (chosen < BATTERY_VOLTAGE_MIN_MV) {
-                        chosen = BATTERY_VOLTAGE_MIN_MV;
-                    } else if (chosen > BATTERY_VOLTAGE_MAX_MV) {
-                        chosen = BATTERY_VOLTAGE_MAX_MV;
-                    }
-                    LOG_WRN("Battery scaling out of range: raw_mv=%d v_div=%d clamped_to=%dmV",
-                            raw_mv, v_div, chosen);
-                }
-            }
-
-            battery_value = chosen;
-
-            /* Rolling max: ignore brief drops during LED pulses */
-            voltage_history[voltage_history_idx] = battery_value;
-            voltage_history_idx = (voltage_history_idx + 1) % VOLTAGE_SMOOTH_SAMPLES;
-            int32_t max_v = voltage_history[0];
-            for (int i = 1; i < VOLTAGE_SMOOTH_SAMPLES; i++) {
-                if (voltage_history[i] > max_v) max_v = voltage_history[i];
-            }
-            uint8_t battery_pct = battery_voltage_to_percent(max_v);
-
-#if defined(CONFIG_BATTERY_CRITICAL_LOW_SHUTDOWN)
-            /* Only trigger the protective shutdown when the smoothed rolling
-             * MAX is below the critical threshold. A single bad sample (e.g.
-             * caused by ADC contention with PPG/ACC bring-up, or a momentary
-             * dip during an LED pulse) must NEVER reboot the device — that
-             * was the v1.0.16 reboot loop.
-             *
-             * We also require the smoothing window to be filled with real
-             * readings (no zeroed history slots) so that an early bad sample
-             * cannot trip the gate while voltage_history[1..2] are still 0.
-             */
-            bool history_filled = true;
-            for (int i = 0; i < VOLTAGE_SMOOTH_SAMPLES; i++) {
-                if (voltage_history[i] == 0) {
-                    history_filled = false;
-                    break;
-                }
-            }
-            if (history_filled && max_v < CRITICAL_LOW_VOLTAGE_MV) {
-                LOG_ERR("Battery critical: max(last %d)=%dmV < %dmV - shutting down to protect cell",
-                        VOLTAGE_SMOOTH_SAMPLES, max_v, CRITICAL_LOW_VOLTAGE_MV);
-                k_msleep(100); /* Allow log to flush */
-                sys_reboot(SYS_REBOOT_COLD);
-            }
-#endif
-            LOG_INF("Battery: %dmV -> %d%%", battery_value, battery_pct);
-            tgm_service_send_battery_notify(battery_value);
-            if (app_data_ready)
-            {
-                app_data_ready(battery_value);
-            }
-        }
+        return 0;
     }
 
-    // Disable the battery voltage divider
-    err = gpio_pin_set_dt(&battery_enable, 0);
+    int32_t raw_mv = (int32_t)adc_buf;
+
+    err = adc_raw_to_millivolts_dt(&adc_chan0, &raw_mv);
     if (err)
     {
-        LOG_ERR("Failed to disable battery voltage divider, err %d", err);
+        LOG_ERR("ADC raw to millivolts failed, err %d", err);
+        return 0;
+    }
+    if (raw_mv < IMPLAUSIBLE_RAW_MV_MIN || raw_mv > IMPLAUSIBLE_RAW_MV_MAX)
+    {
+        LOG_WRN("Battery: implausible raw_mv=%d (window %d..%dmV) — sample discarded",
+                raw_mv, IMPLAUSIBLE_RAW_MV_MIN, IMPLAUSIBLE_RAW_MV_MAX);
+        return 0;
     }
 
-    // Schedule the next measurement (runtime-configurable)
+    const int32_t v_div = raw_mv * VOLTAGE_DIVIDER_SCALE;
+    const int32_t v_nodiv = raw_mv;
+    const int32_t v_div_over6 = (raw_mv * VOLTAGE_DIVIDER_SCALE) / 6;
+    const int32_t v_nodiv_over6 = raw_mv / 6;
+    int32_t chosen = v_div;
+
+    if (!is_plausible_battery_mv(chosen)) {
+        if (is_plausible_battery_mv(v_div_over6)) {
+            chosen = v_div_over6;
+            LOG_WRN("Battery scaling fallback: using divider/6 (raw_mv=%d -> %dmV)", raw_mv, chosen);
+        } else if (is_plausible_battery_mv(v_nodiv)) {
+            chosen = v_nodiv;
+            LOG_WRN("Battery scaling fallback: using no-divider (raw_mv=%d -> %dmV)", raw_mv, chosen);
+        } else if (is_plausible_battery_mv(v_nodiv_over6)) {
+            chosen = v_nodiv_over6;
+            LOG_WRN("Battery scaling fallback: using no-divider/6 (raw_mv=%d -> %dmV)", raw_mv, chosen);
+        } else {
+            LOG_WRN("Battery scaling out of range: raw_mv=%d v_div=%d — sample discarded",
+                    raw_mv, v_div);
+            return 0;
+        }
+    }
+    return chosen;
+}
+
+int32_t battery_read_now_mv(void)
+{
+    return battery_adc_sample_mv();
+}
+
+static void take_battery_measurement(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    const int32_t chosen = battery_adc_sample_mv();
+
+    if (chosen > 0) {
+        battery_value = chosen;
+
+        /* Rolling max: ignore brief drops during LED pulses */
+        voltage_history[voltage_history_idx] = battery_value;
+        voltage_history_idx = (voltage_history_idx + 1) % VOLTAGE_SMOOTH_SAMPLES;
+        int32_t max_v = voltage_history[0];
+        for (int i = 1; i < VOLTAGE_SMOOTH_SAMPLES; i++) {
+            if (voltage_history[i] > max_v) max_v = voltage_history[i];
+        }
+        uint8_t battery_pct = battery_voltage_to_percent(max_v);
+
+#if defined(CONFIG_BATTERY_CRITICAL_LOW_SHUTDOWN)
+        bool history_filled = true;
+        for (int i = 0; i < VOLTAGE_SMOOTH_SAMPLES; i++) {
+            if (voltage_history[i] == 0) {
+                history_filled = false;
+                break;
+            }
+        }
+        if (history_filled && max_v < CRITICAL_LOW_VOLTAGE_MV) {
+            LOG_ERR("Battery critical: max(last %d)=%dmV < %dmV - shutting down to protect cell",
+                    VOLTAGE_SMOOTH_SAMPLES, max_v, CRITICAL_LOW_VOLTAGE_MV);
+            k_msleep(100);
+            sys_reboot(SYS_REBOOT_COLD);
+        }
+#endif
+        LOG_INF("Battery: %dmV -> gauge=%u%% chem=%u%%",
+                battery_value, battery_pct,
+                battery_voltage_to_chemistry_percent(battery_value));
+        tgm_service_send_battery_notify(battery_value);
+        if (app_data_ready)
+        {
+            app_data_ready(battery_value);
+        }
+    }
+
     if (measurement_interval_s > 0)
     {
         k_work_reschedule(&battery_measurement_work, K_SECONDS(measurement_interval_s));
     }
-    return;
 }
 
 int battery_init(battery_data_ready_t battery_data_ready_cb)
@@ -288,14 +261,17 @@ int battery_init(battery_data_ready_t battery_data_ready_cb)
     }
     voltage_history_idx = 0;
 
-    // Configure battery enable pin as output and set it high
-    err = gpio_pin_configure_dt(&battery_enable, GPIO_OUTPUT);
+    /* Drive baten (P0.10) HIGH for the lifetime of the device — boost latch. */
+    err = gpio_pin_configure_dt(&battery_enable, GPIO_OUTPUT_HIGH);
     if (err)
     {
-        LOG_ERR("GPIO pin configure failed, err %d", err);
+        LOG_ERR("GPIO pin configure (baten=HIGH) failed, err %d", err);
         return err;
     }
-    return err;
+
+    k_sleep(K_MSEC(20));
+
+    return 0;
 }
 
 int battery_start_measurement()
@@ -319,7 +295,7 @@ int32_t battery_get_last_measurement()
 
 uint8_t battery_voltage_to_percent(int32_t voltage_mv)
 {
-    /* CG-320B linear fit: 4.35V = 100%, 3.0V = 0% */
+    /* User gauge: 4.35V = 100%, 3.61V = remapped 0% (operational empty). */
     if (voltage_mv >= CG320B_VMAX_MV) return 100;
     if (voltage_mv <= CG320B_VMIN_MV) return 0;
     /* percent = (V - Vmin) * 100 / (Vmax - Vmin) */
@@ -328,9 +304,34 @@ uint8_t battery_voltage_to_percent(int32_t voltage_mv)
     return (uint8_t)(pct > 100 ? 100 : pct);
 }
 
+uint8_t battery_voltage_to_chemistry_percent(int32_t voltage_mv)
+{
+    /* Full chemistry span: 4.35V = 100%, 3.0V = 0%. */
+    if (voltage_mv >= CG320B_VMAX_MV) {
+        return 100;
+    }
+    if (voltage_mv <= CG320B_CHEMISTRY_VMIN_MV) {
+        return 0;
+    }
+    int32_t range = CG320B_VMAX_MV - CG320B_CHEMISTRY_VMIN_MV;
+    int32_t pct = (voltage_mv - CG320B_CHEMISTRY_VMIN_MV) * 100 / range;
+    return (uint8_t)(pct > 100 ? 100 : pct);
+}
+
 uint8_t battery_get_percentage(void)
 {
     return battery_voltage_to_percent(battery_value);
+}
+
+bool battery_below_soft_floor(void)
+{
+    if (battery_value <= 0) {
+        return false;
+    }
+
+    const uint8_t pct = battery_voltage_to_percent(battery_value);
+
+    return (pct < 5) || (battery_value < CG320B_VMIN_MV);
 }
 
 void battery_get_usage_telemetry(struct battery_usage_telemetry_t *out)
