@@ -56,7 +56,7 @@ flowchart TB
 
 | Layer | Today (Phase 0 · Gen1) | Trajectory |
 |-------|------------------------|------------|
-| **Hardware** | pcb00003 **BOM REV8** / **REV10**, Kaga **ES2832AA2** (nRF52832), FW **1.0.82**, Oralable magnetic case | **Gen2** BOM REV9 / REV11, Kaga **ES4L15BA1** (nRF54L15), FW 2.0.x, on-device ML headroom |
+| **Hardware** | pcb00003 **BOM REV8** / **REV10**, Kaga **ES2832AA2** (nRF52832), FW **1.0.84**, Oralable magnetic case | **Gen2** BOM REV9 / REV11, Kaga **ES4L15BA1** (nRF54L15), FW 2.0.x, on-device ML headroom |
 | **Firmware** | TGM GATT, worn-gated streaming, MCUboot/mcumgr OTA | Richer services, in-app DFU, locked algorithm builds for clearance |
 | **iOS** | Vitals phase: temple HR/SpO₂, placement picker | Phase 1+ muscle UI; production CloudKit; clinical exports |
 | **Android** | Not built; marketing cites 2026 | Native Kotlin recommended; share BLE/parser spec via OralableCore port |
@@ -112,7 +112,7 @@ Oralable sits in a **niche orthogonal to rings**: same broad sensor classes (PPG
 | Placement (Phase 0) | **Temple** HR/SpO₂ | Muscle/cheek Protocol B = Phase 1+ |
 | BLE | Custom **TGM GATT** service (`3A0FF000`) | Raw 50 Hz PPG (R/G/IR) + ACC + temp + status |
 | OTA | **MCUboot + mcumgr SMP** | Nordic Device Manager on iPhone; open NCS stack |
-| FW version | Pilot ship **1.0.82** (iOS gate min **1.0.63** / recommend **1.0.82**; app **4.3.3**) · Gen2 **2.0.x** — [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) |
+| FW version | Gen1 target **1.0.84** (iOS gate min **1.0.63** / recommend **1.0.84**; app **4.3.3** build **5**) · Gen2 **2.0.x** — [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) |
 
 **BLE characteristics (TGM service):**
 
@@ -126,7 +126,7 @@ Oralable sits in a **niche orthogonal to rings**: same broad sensor classes (PPG
 | `...f006` | Firmware version | string |
 | `...f009` | Status | on_dock, worn, device_state, battery % (+ `charge_active` on FW ≥ 1.0.47) |
 
-**Streaming policy (1.0.82):** PPG/ACC run while BLE is connected and notify (CCC) is on — even if `worn=0`. Disconnect stops the chips. Below ~5% / 3.61 V, sensors off with MCU and BLE up. Automatic `worn` is IR pulse, not die temperature. Mode 3 still forces worn. **Advertising:** restart from NCS connection `.recycled`. Firmware status char is primary for iOS.
+**Streaming policy (1.0.84 / since 1.0.82):** PPG/ACC run while BLE is connected and notify (CCC) is on — even if `worn=0`. Disconnect stops the chips. Below ~5% / 3.61 V, sensors off with MCU and BLE up. Automatic `worn` is IR pulse, not die temperature. Mode 3 still forces worn. **Advertising:** restart from NCS connection `.recycled`. Firmware status char is primary for iOS.
 
 ### 3.2 Roadmap (data room: nRF54L15 generation)
 
@@ -260,7 +260,7 @@ Oralable REV10 (BLE)
 **Connect sequence** (Nordic Academy / Apple CoreBluetooth–aligned):
 
 1. Read device ID (`3A0FF005`)
-2. Read firmware version (`3A0FF006`) → **FirmwareGate** (minimum **1.0.63**; recommend **1.0.82**)
+2. Read firmware version (`3A0FF006`) → **FirmwareGate** (minimum **1.0.63**; recommend **1.0.84**)
 3. Manual placement write (`00B` 0x09) before streaming CCCs
 4. Staggered CCC enables — **await each confirm** (battery → status → PPG → ACC → temp)
 5. Ready when PPG + ACC + **status + battery** CCC confirms are set
@@ -714,7 +714,7 @@ Any Android implementation must reproduce:
 | Capability | Spec source |
 |------------|-------------|
 | TGM GATT connect sequence | `DeviceConnectionCoordinator`, `BLEConstants.TGM` |
-| Firmware gate min **1.0.63** / recommend **1.0.82** | `FirmwareGate.swift` |
+| Firmware gate min **1.0.63** / recommend **1.0.84** | `FirmwareGate.swift` |
 | PPG/ACC/temp/status parsing | `BLEDataParser.swift` |
 | 50 Hz alignment / bucketing | `DeviceManagerAdapter` |
 | Worn-gated recording | `AutomaticRecordingSession`, `TGMDeviceStatus` |

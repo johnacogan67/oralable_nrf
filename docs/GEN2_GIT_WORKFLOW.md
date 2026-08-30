@@ -57,7 +57,7 @@ oralable_<ver>_pcb00003_gen2_merged.hex      # Gen2
 | Gen1 | `app/VERSION` | `1.0.70` |
 | Gen2 | `boards/.../pcb00003_gen2/VERSION.gen2` | `2.0.0-gen2-nrfconnect` |
 
-iOS firmware gate: Gen1 min `1.0.63` / recommend `1.0.70` (app **4.3.3**); add Gen2 `2.0.x` when G2-P2 ships.
+iOS firmware gate: Gen1 min `1.0.63` / recommend `1.0.84` (app **4.3.3** build **5**); add Gen2 `2.0.x` when G2-P2 ships.
 
 ### Status helper
 

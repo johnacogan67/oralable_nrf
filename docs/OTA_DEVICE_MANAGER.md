@@ -49,7 +49,7 @@ After `./scripts/build_firmware.sh`, use one of these files in Device Manager:
 | Convenience symlink | `build_pcb00003/app_update.bin` → signed bin |
 | SWD first flash only | `build_pcb00003/merged.hex` |
 
-**Packaged ship (1.0.82):** AirDrop `oralable_nrf/artifacts/oralable_1.0.82_pcb00003_dfu_application.zip` (copy also in `cursor_oralable/docs/data_room/firmware/`). Guide: [FIRMWARE_1.0.82_FLASH.md](../../cursor_oralable/docs/data_room/FIRMWARE_1.0.82_FLASH.md).
+**Current Gen1 target (1.0.84):** AirDrop `artifacts/oralable_1.0.84_pcb00003_dfu_application.zip` (also in `cursor_oralable/docs/data_room/firmware/`). Guide: [FIRMWARE_1.0.84_FLASH.md](../../cursor_oralable/docs/data_room/FIRMWARE_1.0.84_FLASH.md). **Prior (1.0.82):** [FIRMWARE_1.0.82_FLASH.md](../../cursor_oralable/docs/data_room/FIRMWARE_1.0.82_FLASH.md).
 
 Rebuild before each OTA when firmware changes:
 

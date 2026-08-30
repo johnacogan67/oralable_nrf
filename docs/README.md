@@ -51,10 +51,10 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 
 | Item | Value |
 |------|--------|
-| Firmware | **1.0.82** ship — [VERSION_ALIGNMENT](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) · [architecture §3](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md#3-validation-status-matrix-where-we-are) |
-| iOS | App **4.3.3** · `FirmwareGate` min **1.0.63** · recommend **1.0.82** |
+| Firmware | **1.0.84** target — [VERSION_ALIGNMENT](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) · [architecture §3](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md#3-validation-status-matrix-where-we-are) |
+| iOS | App **4.3.3** (build **5**) · `FirmwareGate` min **1.0.63** · recommend **1.0.84** |
 | Board | `pcb00003/nrf52832` (Gen1) · `pcb00003_gen2` stub (Gen2) |
-| First SWD flash | data-room / `artifacts/oralable_1.0.82_pcb00003_merged.hex` |
-| OTA artifact | `artifacts/oralable_1.0.82_pcb00003_dfu_application.zip` |
+| First SWD flash | `artifacts/oralable_1.0.84_pcb00003_merged.hex` · [FIRMWARE_1.0.84_FLASH.md](../../cursor_oralable/docs/data_room/FIRMWARE_1.0.84_FLASH.md) |
+| OTA artifact | `artifacts/oralable_1.0.84_pcb00003_dfu_application.zip` |
 
 *Last updated: August 2026*

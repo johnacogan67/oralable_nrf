@@ -1,6 +1,17 @@
 # Oralable Hardware Roadmap: nRF54L15 + MAXM86161
 
-**See also:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) · [docs/README.md](./README.md)
+**See also:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) · [docs/README.md](./README.md) · [FIGURES.md](./FIGURES.md) · **App working diagrams:** [MOBILE_APP_FLOWS.md §2](../../oralable_swift/docs/MOBILE_APP_FLOWS.md#2-how-the-patient-app-works--phase-0)
+
+```mermaid
+flowchart LR
+  Gen1[Gen1 ES2832AA2 nRF52832] --> Pilot[Phase 0 temple vitals]
+  Pilot --> Gen2[Gen2 ES4L15BA1 nRF54L15]
+  Gen2 --> Headroom[On-device ML headroom]
+```
+
+![FIG-NRF-003 Gen2 nRF54 block](./figures/FIG-NRF-003-gen2-nrf54-block.svg)
+
+*Figure FIG-NRF-003 — Gen2 nRF54L15 block diagram art (placeholder).*
 
 Source documents (Seed A data room, 2026-06-09):
 

@@ -87,16 +87,16 @@ Command Palette → **Developer: Reload Window** (or restart clangd) so diagnost
 
 ---
 
-## Manual smoke checklist (TGM / firmware ≥ 1.0.63; **pilot ship 1.0.82**)
+## Manual smoke checklist (TGM / firmware ≥ 1.0.63; **Gen1 target 1.0.84**)
 
-iOS `FirmwareGate` minimum: **1.0.63** · recommend **1.0.82**. **Ed/Pedro Phase 0 kits:** flash **1.0.82**. App **4.3.3**. Record actual `3A0FF006` after flash. See [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md).
+iOS `FirmwareGate` minimum: **1.0.63** · recommend **1.0.84**. **Ed/Pedro Phase 0 kits:** flash **1.0.84**. App **4.3.3** (build **5**). Record actual `3A0FF006` after flash. See [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md).
 
 **Hardware (Gen1 pilot):** BOM **REV8** · PCB **REV10** · Kaga **ES2832AA2** · charge only in the **Oralable magnetic case** (not WPC Qi). See [PRODUCT_ROADMAP.md](../../cursor_oralable/docs/PRODUCT_ROADMAP.md) · [COST_AND_TIMELINE.md](../../cursor_oralable/docs/data_room/COST_AND_TIMELINE.md) (Stage A now–2027; Stage B later).
 
 - [ ] **Oralable magnetic charging case** + optional J-Link: boots and advertises as **Oralable** (not a wired contact dock; not a phone Qi pad).
 - [ ] Battery-only: remains alive ≥ 180s (optional soak).
 - [ ] **Device Manager** or **nRF Connect**: TGM `3A0FF000` + SMP services discovered.
-- [ ] Read firmware `3A0FF006` (workspace / ship: **`1.0.82`**).
+- [ ] Read firmware `3A0FF006` (workspace / target: **`1.0.84`**).
 - [ ] GATT includes **`3A0FF009`** (status), **`3A0FF00A`** (fw log), **`3A0FF00B`** (config write), **`3A0FF00C`** (config state) when build ≥ 1.0.37.
 - [ ] **No BLE:** PPG/ACC off; status green on pad / dark off pad.
 - [ ] **BLE connected:** PPG/ACC after CCC enable **without** a worn write; `worn` status may stay 0. Export nRF CSV if comparing to iOS. *(Cheek / Protocol B = Phase 1+ only.)*
@@ -136,6 +136,8 @@ Worn detection **1.0.82+:** IR pulse (AC/DC). Die temperature is logged only. **
 **1.0.81:** Below **5% / 3.61 V**, PPG and ACC stop even if BLE is still up. MCU, advertising, and charge stay on. Stream resumes when the gauge is back above the floor and CCC is still on. No MCU shutdown at 5%.
 
 **1.0.82:** Automatic `worn` follows **IR pulse** (AC/DC for ≥2.5 s; 20 s hold through a clench), not die temperature. MAM still streams raw red/green/IR + ACC. HR/SpO₂ stay on the phone/Mac. Mode 3 still forces worn. On-dock still `worn=0`.
+
+**1.0.84:** PPG/ACC GATT notifies are high priority; FwLog is low. Stall recover drops a zombie link when **samples** go silent **or** when no PPG notify succeeds for ~4 s (AFE can still pulse with no central). STAT charging/taper owns the LEDs in that idle case: zero red/IR, green, clear leftover mode 3, restart advertising. A live Protocol A session keeps sensing LEDs because PPG notifies succeed. Mac Protocol A does **not** subscribe FwLog unless `--fw-log`. **Desk/bench abandon:** if `worn=0`, PPG is still sensing, and ACC shows no significant motion for **10 minutes**, force-recover and re-advertise. Overnight on-temple (`worn=1`) is not dropped for stillness.
 
 | Context | Condition | Target LED | Notes |
 |---------|-----------|------------|--------|
@@ -222,10 +224,10 @@ Worn detection **1.0.82+:** IR pulse (AC/DC). Die temperature is logged only. **
 2. nRF Connect: read `3A0FF006` + `3A0FF009`, enable **battery (`004`)** + **status (`009`)** notifies for a 2 min soak off case, then on Oralable case.
 3. Judge SOC and LED behavior **off the Oralable case** after a case soak (not only while on case).
 4. **FW ≥ 1.0.70 CHRSTS (LTC4124 STAT) — not “broken”:** STAT **blinks while charging** and goes **steady assert** when charge current tapers (“almost full”, not necessarily 4.2 V). Firmware uses `CONFIG_CHRSTS_STAT_ACTIVITY` (edge count → `charge_active`, steady assert → on-pad taper, steady inactive → undock). Manual modes 1/2/3 still override auto. Prefer **Oralable case + USB-C** only (not MagSafe/Qi).
-5. nRF Connect / RTT gate for 1.0.74: after Dual A (mode 3), **disconnect** then seat on Oralable case with no central → green returns (STAT pad wins). While PPG/ACC CCC is on, pad-wins must **not** clear worn. Status `on_dock=1` + `charge_active=1` (flash) or `charge_active=0` (solid taper). Connect → LED off. Lift off → LED off.
+5. nRF Connect / RTT gate for 1.0.84: after Dual A (mode 3), **disconnect** then seat on Oralable case with no central → green returns (STAT pad wins). A leftover zombie CCC on the pad must also go green and advertise (~4 s). While PPG notifies are succeeding (live session), pad-wins must **not** clear worn. Status `on_dock=1` + `charge_active=1` (flash) or `charge_active=0` (solid taper). Connect → LED off. Lift off → LED off.
 6. If **Oralable** missing in scan after disconnect: wait for connection **recycle**; `ble.c` restarts advertising from `.recycled` via `k_work` (not from the disconnect callback). Soft `ble_ensure_advertising()` only if adv is off.
 7. **1.0.82 stream + worn (phone Bluetooth off):** nRF Connect → read `3A0FF006` (**1.0.82**) → enable CCC battery → status → FwLog → PPG → ACC. Above 5%: `fw: ppg_start ok` with `worn=0` until IR pulse. Temple: `fw: ir_pulse worn=1` after ~2.5 s. Below 5%: `fw: floor sensors off` / `ppg_start skip … floor=1`; BLE stays up.
-8. **Stuck solid red + not advertising after Mac Protocol A:** Mac Bluetooth off 30 s. Seat MAM on Oralable case (USB-C). Wait for **green** (flash then solid). Lift off — LED **off**. Then scan. If still red and invisible, SWD reset / flash current tree (**1.0.82**, not 1.0.70). Stall recover zeros red/IR before restarting adv.
+8. **Stuck solid red + not advertising after Mac Protocol A:** Seat on Oralable case. **1.0.84+** should go green and advertise within ~4 s (pad wins idle link). If still red and invisible, SWD flash **1.0.84**. Phone Bluetooth off before Protocol A. Mac: no `--fw-log`.
 
 ### Related source files
 
@@ -252,7 +254,8 @@ Record known-good pairs after `tandem_validate.sh` + manual smoke. **Live valida
 | 2026-06-07 | oralable_nrf | `4210e97` | `6097a0a` | **1.0.37-nrfconnect** | build + flash smoke | 00A/B/C diagnostics, connect probe | PASS | iOS Developer dump + fw log |
 | 2026-06-07 | oralable_nrf | (workspace) | (workspace) | **1.0.51-nrfconnect** | nRF CSV logs 33–36 | chrsts byte0, LED policy | **PARTIAL** | See architecture §3.2–3.3; chrsts BROKEN on Oralable case |
 | 2026-07-16 | oralable_nrf | (workspace) | (workspace) | **1.0.67-nrfconnect** (`app/VERSION`); kits still **1.0.66** hex | nRF Connect TBD | Bugbot + Nordic/Apple; no `CONFIG_BT_DFU_SMP`; iOS CCC timeouts | **PARTIAL** | §3b S1–S4 before tag |
-| 2026-08-27 | oralable_nrf | (workspace) | (workspace) | **1.0.82** | packaged hex + OTA zip | Automatic worn = IR pulse | **SHIP** | Temple IR-pulse latch = field check after OTA |
+| 2026-08-30 | oralable_nrf | (workspace) | (workspace) | **1.0.84** | hex + OTA zip archived | Pad/zombie recover + desk abandon | **TARGET** | [FIRMWARE_1.0.84_FLASH.md](../../cursor_oralable/docs/data_room/FIRMWARE_1.0.84_FLASH.md) |
+| 2026-08-27 | oralable_nrf | (workspace) | (workspace) | **1.0.82** | packaged hex + OTA zip | Automatic worn = IR pulse | **PRIOR** | Keep for OTA rollback |
 | 2026-08-14 | oralable_nrf | (workspace) | (workspace) | **1.0.71** | nRF Connect TBD | sense-on-BLE; green charge LEDs | — | Superseded by 1.0.72 (off-pad dark) |
 | 2026-07-24 | oralable_nrf | (workspace) | (workspace) | **1.0.70** | docs stamp sync | — | — | App **4.3.3** milestone; [VERSION_ALIGNMENT](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) |
 | 2026-07-22 | oralable_nrf | (workspace) | (workspace) | **1.0.70** | packaged hex + docs aligned · RTT gate TBD | CHRSTS STAT activity (blink=charge) | **SHIP** | App **4.3.2**; [VERSION_ALIGNMENT](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) |
@@ -264,4 +267,4 @@ cd ~/work/oralable_nrf && git rev-parse --short HEAD
 cd ~/work/oralable_swift && git rev-parse --short HEAD
 ```
 
-*Last updated: August 2026 (ship **1.0.82**; iOS **4.3.3** — [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md))*
+*Last updated: 30 Aug 2026 (Gen1 target **1.0.84**; iOS **4.3.3** build **5** — [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md))*
