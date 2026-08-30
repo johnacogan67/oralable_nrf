@@ -1,0 +1,38 @@
+# oralable_nrf — ignore build trees and local tooling noise.
+# Release flash packs stay tracked under artifacts/ (current + rollback).
+
+# Zephyr / west build outputs
+/build/
+/build_*/
+build/
+build_*/
+
+# West / NCS checkouts if present as siblings or nested
+/zephyr/
+/nrf/
+/modules/
+/bootloader/mcuboot/
+/.west/
+
+# Tooling caches
+.cache/
+.clangd/
+compile_commands.json
+
+# OS / editor
+.DS_Store
+**/.DS_Store
+.vscode/
+*.swp
+*~
+
+# Logs
+*.log
+artifacts/rtt.log
+rtt.log
+
+# Python helper venvs (if any)
+.venv/
+venv/
+__pycache__/
+*.pyc
