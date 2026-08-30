@@ -136,12 +136,25 @@ static bool status_charge_active_effective(void)
 #endif
 }
 
+static bool stat_on_pad_now(void)
+{
+#if IS_ENABLED(CONFIG_CHRSTS_STAT_ACTIVITY)
+	return (stat_phase == STAT_PHASE_CHARGING ||
+		stat_phase == STAT_PHASE_TAPER);
+#else
+	return on_dock;
+#endif
+}
+
 static void apply_battery_leds(void)
 {
 	int32_t mv;
 	uint8_t battery_pct;
 
-	if (ble_is_connected())
+	/* Live temple stream owns the emitters. A zombie "connected" link
+	 * with no successful notifies must not block pad green / off-pad dark.
+	 */
+	if (ble_is_connected() && tgm_service_ppg_stream_live())
 	{
 		return;
 	}
@@ -278,13 +291,19 @@ static void chrsts_process_stat_activity(void)
 		}
 
 		/* Pad wins over leftover Dual A / nRF Connect mode 3 (worn)
-		 * only when no live PPG/ACC CCC. A Mac Protocol A / Dual A
-		 * session keeps mode 3 even if STAT still looks on-pad.
-		 * Mode 1 (force charger) stays as written when STAT is off.
+		 * when CCC is off, or when CCC is leftover on a zombie link
+		 * (no successful notify for 4 s). A live Protocol A / Dual A
+		 * session keeps mode 3: PPG notifies succeed, so idle is false
+		 * even if STAT still looks on-pad. Mode 1 stays as written
+		 * when STAT is off.
 		 */
 		const bool stat_on_pad = (stat_phase == STAT_PHASE_CHARGING ||
 					  stat_phase == STAT_PHASE_TAPER);
-		if (stat_on_pad && !tgm_service_sensor_notify_enabled() &&
+		const bool leftover_stream =
+			!tgm_service_sensor_notify_enabled() ||
+			tgm_service_link_notify_idle();
+
+		if (stat_on_pad && leftover_stream &&
 		    !tgm_service_mode3_pad_grace_active()) {
 			if (tgm_service_get_user_device_mode() == 3U) {
 				tgm_service_set_user_device_mode(0U);
@@ -292,6 +311,9 @@ static void chrsts_process_stat_activity(void)
 			if (!on_dock || worn) {
 				LOG_INF("STAT on-pad wins over user mode — on_dock=1 worn=0");
 				update_state(true, false);
+			}
+			if (ble_is_connected() && tgm_service_link_notify_idle()) {
+				ble_force_recover("STAT pad wins idle link");
 			}
 		}
 		return;
@@ -1156,20 +1178,34 @@ int main(void)
 
 		if (++led_refresh_s >= 2) {
 			led_refresh_s = 0;
-			if (ble_is_connected() &&
-			    tgm_service_ppg_notify_active()) {
+			const bool link_idle = tgm_service_link_notify_idle();
+			const bool pad_owns_leds =
+				stat_on_pad_now() &&
+				!tgm_service_mode3_pad_grace_active() &&
+				(!tgm_service_sensor_notify_enabled() ||
+				 link_idle);
+
+			if (pad_owns_leds) {
+				if (ble_is_connected() && link_idle) {
+					ble_force_recover("led policy pad idle");
+				}
+				if (!tgm_service_connect_probe_active()) {
+					apply_battery_leds();
+				}
+			} else if (ble_is_connected() &&
+				   tgm_service_ppg_notify_active() &&
+				   !link_idle) {
 				apply_worn_sensing_leds();
 			} else if (!tgm_service_connect_probe_active()) {
 				if (ble_is_connected() &&
-				    tgm_service_sensor_stream_stale()) {
-					ble_force_recover("led policy stale stream");
+				    (tgm_service_sensor_stream_stale() ||
+				     link_idle)) {
+					ble_force_recover("led policy idle/stale");
 				}
 				if (!tgm_service_ppg_notify_active()) {
 					ppg_apply_off_body_leds();
 				}
-				if (!ble_is_connected()) {
-					apply_battery_leds();
-				}
+				apply_battery_leds();
 			}
 		}
 

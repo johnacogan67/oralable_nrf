@@ -279,13 +279,14 @@ int ppg_stop(void)
     sensor_i2c_lock();
     err = ppg_sensor_stop(&i2c);
     sensor_i2c_unlock();
+    /* Clear even if I2C stop failed so ppg_start() will re-init. */
+    ppg_running = false;
     if (err)
     {
         LOG_ERR("Failed to stop PPG sensor");
         return err;
     }
 
-    ppg_running = false;
     return 0;
 }
 

@@ -90,9 +90,10 @@ void ble_ensure_advertising(void)
         /* Zombie: stack still "connected", CCC on, no notifies — red stays
          * on and advertising never restarts.
          */
-        if (tgm_service_sensor_stream_stale())
+        if (tgm_service_sensor_stream_stale() ||
+            tgm_service_link_notify_idle())
         {
-            ble_force_recover("connected stale stream");
+            ble_force_recover("connected idle/stale stream");
         }
         return;
     }

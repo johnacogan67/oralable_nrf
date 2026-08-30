@@ -250,11 +250,20 @@ bool tgm_service_ppg_notify_active(void);
 /** @brief True when a PPG notify succeeded in the last 2 s. */
 bool tgm_service_ppg_stream_live(void);
 
-/** @brief True when PPG/ACC CCC is on but no successful notify for 4 s.
+/** @brief True when PPG/ACC CCC is on but the AFE has produced no samples for 4 s.
  *
- * If PPG CCC is on, ACC/battery success does not keep a dead PPG stream alive.
+ * GATT notify failures (FwLog / -ENOMEM) do not count — only a silent sensor.
+ * If PPG CCC is on, ACC/battery success does not keep a dead PPG sensor alive.
  */
 bool tgm_service_sensor_stream_stale(void);
+
+/** @brief True when PPG/ACC CCC is on but no PPG (or ACC-only) notify succeeded for 4 s.
+ *
+ * A zombie "connected" link can keep the AFE pulsing with no central. Recover
+ * that even if samples are still arriving. A live Protocol A link keeps this
+ * false because PPG notifies succeed. Soft-floor silence does not count.
+ */
+bool tgm_service_link_notify_idle(void);
 
 /** @brief Zero PPG LEDs and stop PPG/ACC. Call first on BLE stall recover. */
 void tgm_service_clear_optical_leds(void);

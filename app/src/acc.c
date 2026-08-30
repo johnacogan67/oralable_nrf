@@ -168,12 +168,13 @@ int acc_stop(void)
     sensor_i2c_lock();
     err = acc_sensor_stop(&i2c);
     sensor_i2c_unlock();
+    /* Clear even if I2C stop failed so acc_start() will re-init. */
+    acc_running = false;
     if (err)
     {
         LOG_ERR("Failed to stop accelerometer sensor");
         return err;
     }
 
-    acc_running = false;
     return 0;
 }

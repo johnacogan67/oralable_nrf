@@ -60,6 +60,13 @@ static struct k_work_delayable sensor_health_work;
 static int64_t sensor_stream_watch_ms;
 static int64_t last_ppg_notify_ok_ms;
 static int64_t last_acc_notify_ok_ms;
+static int64_t last_ppg_sample_ms;
+static int64_t last_acc_sample_ms;
+static int64_t last_acc_motion_ms;
+static int16_t last_acc_motion_x;
+static int16_t last_acc_motion_y;
+static int16_t last_acc_motion_z;
+static bool acc_motion_have_ref;
 static int64_t last_bat_notify_ok_ms;
 static int64_t last_fwlog_notify_ok_ms;
 static int64_t mode3_pad_grace_until_ms;
@@ -68,6 +75,10 @@ static int64_t mode3_soft_floor_hold_until_ms;
 #define SENSOR_NOTIFY_STALL_MS 4000
 #define MODE3_PAD_GRACE_MS 5000
 #define MODE3_SOFT_FLOOR_HOLD_MS (6 * 60 * 1000)
+/** ~100 mg at ±2 g / 14-bit left-justified — ignores noise, catches tiny moves. */
+#define ACC_MOTION_DELTA_LSB 400
+/** PPG sensing + no ACC motion this long while off-body → desk/bench abandon. */
+#define ACC_NO_MOTION_RECOVER_MS (10 * 60 * 1000)
 
 static uint32_t ppg_frame_counter = 0;
 static uint32_t acc_frame_counter = 0;
@@ -494,10 +505,13 @@ bool tgm_service_sensor_stream_stale(void)
 
     const int64_t now = k_uptime_get();
 
+    /* AFE still producing samples is not a zombie by itself — recover
+     * sample silence here. GATT-idle zombies use tgm_service_link_notify_idle.
+     */
     if (notify_ppg_data)
     {
-        int64_t last = last_ppg_notify_ok_ms > 0 ? last_ppg_notify_ok_ms
-                                                : sensor_stream_watch_ms;
+        int64_t last = last_ppg_sample_ms > 0 ? last_ppg_sample_ms
+                                              : sensor_stream_watch_ms;
         if (last <= 0)
         {
             return false;
@@ -505,13 +519,142 @@ bool tgm_service_sensor_stream_stale(void)
         return (now - last) >= SENSOR_NOTIFY_STALL_MS;
     }
 
-    int64_t last = last_acc_notify_ok_ms > 0 ? last_acc_notify_ok_ms
-                                            : sensor_stream_watch_ms;
+    int64_t last = last_acc_sample_ms > 0 ? last_acc_sample_ms
+                                          : sensor_stream_watch_ms;
     if (last <= 0)
     {
         return false;
     }
     return (now - last) >= SENSOR_NOTIFY_STALL_MS;
+}
+
+bool tgm_service_link_notify_idle(void)
+{
+    if (!ble_is_connected() || !(notify_ppg_data || notify_acc_data))
+    {
+        return false;
+    }
+
+    /* Below 5%: sensors are meant to be silent; do not drop the BLE link. */
+    if (battery_below_soft_floor())
+    {
+        return false;
+    }
+
+    const int64_t now = k_uptime_get();
+    int64_t last;
+
+    /* PPG CCC: only PPG notify success proves a live central. ACC/battery/FwLog
+     * must not keep a dead PPG ATT path alive (1.0.77).
+     */
+    if (notify_ppg_data)
+    {
+        last = last_ppg_notify_ok_ms > 0 ? last_ppg_notify_ok_ms
+                                         : sensor_stream_watch_ms;
+    }
+    else
+    {
+        last = last_acc_notify_ok_ms > 0 ? last_acc_notify_ok_ms
+                                         : sensor_stream_watch_ms;
+    }
+
+    if (last <= 0)
+    {
+        return false;
+    }
+
+    return (now - last) >= SENSOR_NOTIFY_STALL_MS;
+}
+
+static void acc_motion_reset(void)
+{
+    last_acc_motion_ms = k_uptime_get();
+    acc_motion_have_ref = false;
+}
+
+static void acc_motion_feed(const struct acc_sample *acc_data, uint8_t sample_cnt)
+{
+    if (!acc_data || sample_cnt == 0)
+    {
+        return;
+    }
+
+    const int64_t now = k_uptime_get();
+
+    for (uint8_t i = 0; i < sample_cnt; i++)
+    {
+        const int16_t x = acc_data[i].x;
+        const int16_t y = acc_data[i].y;
+        const int16_t z = acc_data[i].z;
+
+        if (!acc_motion_have_ref)
+        {
+            last_acc_motion_x = x;
+            last_acc_motion_y = y;
+            last_acc_motion_z = z;
+            last_acc_motion_ms = now;
+            acc_motion_have_ref = true;
+            continue;
+        }
+
+        const int32_t dx = (int32_t)x - (int32_t)last_acc_motion_x;
+        const int32_t dy = (int32_t)y - (int32_t)last_acc_motion_y;
+        const int32_t dz = (int32_t)z - (int32_t)last_acc_motion_z;
+        const int32_t adx = dx < 0 ? -dx : dx;
+        const int32_t ady = dy < 0 ? -dy : dy;
+        const int32_t adz = dz < 0 ? -dz : dz;
+
+        if (adx >= ACC_MOTION_DELTA_LSB || ady >= ACC_MOTION_DELTA_LSB ||
+            adz >= ACC_MOTION_DELTA_LSB)
+        {
+            last_acc_motion_x = x;
+            last_acc_motion_y = y;
+            last_acc_motion_z = z;
+            last_acc_motion_ms = now;
+        }
+    }
+}
+
+/** PPG AFE still producing samples (sensing), regardless of GATT notify success. */
+static bool ppg_sensing_active(void)
+{
+    if (!notify_ppg_data || last_ppg_sample_ms <= 0)
+    {
+        return false;
+    }
+
+    return (k_uptime_get() - last_ppg_sample_ms) < SENSOR_NOTIFY_STALL_MS;
+}
+
+/**
+ * Desk / bench abandon: PPG still sensing, ACC flat for 10 min, and not worn.
+ * Overnight on-temple (worn=1) stays connected through stillness.
+ */
+static bool tgm_service_ppg_sensing_no_motion(void)
+{
+    if (!ble_is_connected() || !ppg_sensing_active())
+    {
+        return false;
+    }
+
+    /* Still on the person — do not recycle for sleep stillness. */
+    if (device_worn)
+    {
+        return false;
+    }
+
+    if (battery_below_soft_floor())
+    {
+        return false;
+    }
+
+    /* Need ACC samples to judge motion (CCC on + FIFO). */
+    if (!notify_acc_data || last_acc_sample_ms <= 0 || last_acc_motion_ms <= 0)
+    {
+        return false;
+    }
+
+    return (k_uptime_get() - last_acc_motion_ms) >= ACC_NO_MOTION_RECOVER_MS;
 }
 
 void tgm_service_clear_optical_leds(void)
@@ -778,6 +921,8 @@ static void tgm_service_ccc_ppg_data_cfg_changed(const struct bt_gatt_attr *attr
         link_keepalive_arm();
         sensor_stream_watch_ms = k_uptime_get();
         last_ppg_notify_ok_ms = 0;
+        last_ppg_sample_ms = 0;
+        acc_motion_reset();
         (void)k_work_reschedule(&sensor_health_work, K_SECONDS(1));
         (void)k_work_submit(&ppg_start_work);
     }
@@ -800,6 +945,8 @@ static void tgm_service_ccc_acc_data_cfg_changed(const struct bt_gatt_attr *attr
             sensor_stream_watch_ms = k_uptime_get();
         }
         last_acc_notify_ok_ms = 0;
+        last_acc_sample_ms = 0;
+        acc_motion_reset();
         (void)k_work_reschedule(&sensor_health_work, K_SECONDS(1));
         (void)k_work_submit(&acc_start_work);
     }
@@ -1182,16 +1329,36 @@ static void sensor_health_work_handler(struct k_work *work)
 
     if (notify_ppg_data)
     {
-        const int64_t last_ppg = (last_ppg_notify_ok_ms > 0) ? last_ppg_notify_ok_ms
-                                                             : sensor_stream_watch_ms;
+        const int64_t last_ppg = (last_ppg_sample_ms > 0) ? last_ppg_sample_ms
+                                                         : sensor_stream_watch_ms;
 
         if (last_ppg > 0 && (now - last_ppg) >= SENSOR_NOTIFY_STALL_MS)
         {
-            LOG_WRN("PPG notify stall %d ms — recovering BLE", (int)(now - last_ppg));
-            tgm_service_fw_log_printf("fw: ppg notify stall %d", (int)(now - last_ppg));
-            ble_force_recover("ppg notify stall");
+            LOG_WRN("PPG sample stall %d ms — recovering BLE", (int)(now - last_ppg));
+            tgm_service_fw_log_printf("fw: ppg sample stall %d", (int)(now - last_ppg));
+            ble_force_recover("ppg sample stall");
             return;
         }
+        /* AFE can keep pulsing with no central. Drop that zombie even if
+         * samples are fresh. A live Protocol A link has successful PPG notifies.
+         */
+        if (tgm_service_link_notify_idle())
+        {
+            LOG_WRN("PPG notify idle — recovering BLE");
+            tgm_service_fw_log_printf("fw: ppg notify idle");
+            ble_force_recover("ppg notify idle");
+            return;
+        }
+        /* Desk/bench: off-body (worn=0), PPG still sensing, ACC flat 10 min. */
+        if (tgm_service_ppg_sensing_no_motion())
+        {
+            LOG_WRN("Off-body PPG sensing, no ACC motion 10 min — recovering BLE");
+            tgm_service_fw_log_printf("fw: desk no motion 10m");
+            ble_force_recover("desk no motion");
+            return;
+        }
+        (void)k_work_reschedule(&sensor_health_work, K_SECONDS(1));
+        return;
     }
 
     const int64_t last_any = newest_subscribed_notify_ok_ms();
@@ -1268,6 +1435,10 @@ void tgm_service_on_disconnect(void)
     notify_fw_config_state = false;
     last_ppg_notify_ok_ms = 0;
     last_acc_notify_ok_ms = 0;
+    last_ppg_sample_ms = 0;
+    last_acc_sample_ms = 0;
+    last_acc_motion_ms = 0;
+    acc_motion_have_ref = false;
     last_bat_notify_ok_ms = 0;
     last_fwlog_notify_ok_ms = 0;
     sensor_stream_watch_ms = 0;
@@ -1425,6 +1596,7 @@ int tgm_service_send_ppg_notify(struct ppg_sample *ppg_data, uint8_t sample_cnt)
     }
 
     ir_pulse_feed(ppg_data, sample_cnt);
+    last_ppg_sample_ms = k_uptime_get();
 
     tgm_service_ppg_data.frame_counter = ppg_frame_counter++;
     memcpy(tgm_service_ppg_data.ppg_data, ppg_data,
@@ -1433,7 +1605,7 @@ int tgm_service_send_ppg_notify(struct ppg_sample *ppg_data, uint8_t sample_cnt)
     const size_t notify_len = sizeof(uint32_t) + (sizeof(struct ppg_sample) * sample_cnt);
 
     const int err = gatt_notify_checked(&tgm_service_svc.attrs[TGM_ATTR_PPG_VALUE],
-                                        &tgm_service_ppg_data, notify_len, "ppg", false);
+                                        &tgm_service_ppg_data, notify_len, "ppg", true);
     if (err)
     {
         ppg_notify_err++;
@@ -1472,11 +1644,13 @@ int tgm_service_send_acc_notify(struct acc_sample *acc_data, uint8_t sample_cnt)
     tgm_service_acc_data.frame_counter = acc_frame_counter++;
     memcpy(tgm_service_acc_data.acc_data, acc_data,
            sizeof(struct acc_sample) * sample_cnt);
+    last_acc_sample_ms = k_uptime_get();
+    acc_motion_feed(acc_data, sample_cnt);
 
     const size_t notify_len = sizeof(uint32_t) + (sizeof(struct acc_sample) * sample_cnt);
 
     const int err = gatt_notify_checked(&tgm_service_svc.attrs[TGM_ATTR_ACC_VALUE],
-                                        &tgm_service_acc_data, notify_len, "acc", false);
+                                        &tgm_service_acc_data, notify_len, "acc", true);
     if (err)
     {
         acc_notify_err++;
@@ -1561,7 +1735,7 @@ int tgm_service_send_fw_log_notify(const void *data, uint16_t len)
     }
 
     const int err = gatt_notify_checked(&tgm_service_svc.attrs[TGM_ATTR_FW_LOG_VALUE],
-                                        data, len, "fw-log", true);
+                                        data, len, "fw-log", false);
     if (err)
     {
         fwlog_err++;
