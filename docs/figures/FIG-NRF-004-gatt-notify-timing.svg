@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <rect width="960" height="540" fill="#F3F4F6"/>
+  <rect x="24" y="24" width="912" height="492" fill="#E5E7EB" stroke="#9CA3AF" stroke-width="2" stroke-dasharray="12 8" rx="8"/>
+  <text x="480" y="220" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#374151">FIG-NRF-004</text>
+  <text x="480" y="270" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="28" font-weight="bold" fill="#111827">GATT notify timing sketch</text>
+  <text x="480" y="330" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#6B7280">PLACEHOLDER — replace with final art</text>
+</svg>

@@ -11,4 +11,4 @@ When you deliver an answer that relies on **external sources** (FDA clearances, 
 2. **Offer** to bookmark them into `docs/data_room/` (new note or append to an existing landscape/lit file) and link from `docs/data_room/README.md` (and any canonical collab doc if relevant).
 3. Only write the bookmark file if the user accepts (or already asked).
 
-Prefer a short, dated markdown note with: one-liner judgment, claim discipline, and a primary bookmark table — same pattern as `docs/data_room/DIANYX_FDA_AND_SMART_OAT_LANDSCAPE.md`.
+Prefer a short, dated markdown note with: one-liner judgment, claim discipline, and a primary bookmark table — same pattern as `docs/data_room/bookmarks/DIANYX_FDA_AND_SMART_OAT_LANDSCAPE.md`.
