@@ -1,0 +1,13 @@
+---
+description: Workspace topic map — use when starting an agent on a named topic (firmware, algorithms, clinical, …)
+alwaysApply: false
+---
+
+# Workspace topic routing
+
+If the user names a **topic slug** (or says “stay on X”), read `cursor_oralable/docs/WORKSPACE_TOPICS.md` and stay in that topic.
+
+- Open only the repos and start-here files listed for that slug unless the user asks to cross topics.
+- If they name two slugs, treat the first as the write target.
+- Do not invent FW/app version numbers; use `cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md`.
+- Mac Python is the algorithm reference. Change the phone to match Mac unless the exceptions registry says otherwise.

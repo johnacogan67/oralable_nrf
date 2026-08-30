@@ -3,7 +3,7 @@
 **App working diagrams:** [MOBILE_APP_FLOWS.md §2](../../oralable_swift/docs/MOBILE_APP_FLOWS.md#2-how-the-patient-app-works--phase-0)
 
 Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).  
-**Strategy hub:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) (v1.3, Aug 2026 · ranked table §7.0). **Doc pack:** `docs/VERSION` → **1.2.2**.
+**Strategy hub:** [ORALABLE_MARKET_LANDSCAPE.md](./ORALABLE_MARKET_LANDSCAPE.md) (stub → canonical in `cursor_oralable/docs/data_room/bookmarks/`). **Doc pack:** `docs/VERSION` → **1.2.3**.
 
 **Figures:** [FIGURES.md](./FIGURES.md) · assets in [`figures/`](./figures/) · master [cursor_oralable/docs/FIGURES.md](../../cursor_oralable/docs/FIGURES.md)
 

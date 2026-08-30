@@ -1,0 +1,40 @@
+---
+description: Plain prose for docs and sendables — Orwell clarity
+globs: docs/**/*.md
+alwaysApply: true
+---
+
+# Prose — Orwell
+
+When writing or editing **documentation**, **data-room notes**, **pitches**, or **partner emails**, follow George Orwell, *Politics and the English Language* (1946).
+
+## Do
+
+- Never use a metaphor, simile, or other figure of speech which you are used to seeing in print.
+- Never use a long word where a short one will do.
+- If it is possible to cut a word out, always cut it out.
+- Never use the passive where you can use the active.
+- Never use a foreign phrase, a scientific word, or a jargon word if you can think of an everyday English equivalent.
+- Break any of these rules sooner than say anything outright barbarous.
+- Say what is true. Prefer the concrete fact to the abstract claim.
+- Cut stock phrases and marketing fog (“leverage”, “robust”, “seamless”, “unlock”, “journey”, “excited to”).
+- Keep claim discipline and technical facts unchanged.
+- Leave locked **tables**, version stamps, FW/app/HW IDs, “do not say” lines, legal/IP numbers, URLs, code paths, and figure IDs as they are.
+
+## Do not
+
+- Rewrite tables into essay form for style.
+- Inflate readiness (kits shipped, overnight *N*, AHI equivalence, FDA/CE claims) beyond the source of truth.
+- Paste patent claim text or provisional specification wording.
+- Affect Python / Swift / firmware **code** style — this rule is for prose documents and sendables.
+- Force telegram fragments or understatement for their own sake.
+
+## Voice
+
+Clear English. Short words. Cut dying metaphors. Write so that a reader can see what you mean, not so that the page sounds impressive.
+
+## Example (data-room tone)
+
+**Bad:** We are excited to unlock a seamless, robust Research Kit journey that leverages Dual A concordance for transformative clinical insights.
+
+**Good:** The Research Kit pairs Oralable with ANR for Dual A. Kits stay gated until charge-to-temple clears. Target: five units to Pedro by 31 Aug 2026.

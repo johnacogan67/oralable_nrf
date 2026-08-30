@@ -1,0 +1,10 @@
+---
+description: When suggesting Plan mode, always call SwitchMode — do not only mention it in text.
+alwaysApply: true
+---
+
+# Plan mode switch
+
+If you recommend switching to **Plan mode** (for design, architecture trade-offs, multi-file features, or ambiguous scope), you must call `SwitchMode` with `target_mode_id: "plan"` in the **same turn** as the suggestion.
+
+Do not only write “we should switch to plan mode” without invoking the mode switch.
