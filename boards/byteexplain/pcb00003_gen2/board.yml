@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Gen2 scaffold — pinmux TBD (REV11). Do not flash until G2-P0 pin verify.
+# Gen2 first image is an RTT hello. Sensor pins stay unconfigured.
 
 board:
   name: pcb00003_gen2
   vendor: byteexplain
   socs:
-    - name: nrf54l15
+  - name: nrf54l15
+    variants:
+    - name: ''
+      cpucluster: cpuapp

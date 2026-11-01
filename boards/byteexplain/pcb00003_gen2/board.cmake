@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# Gen2 J-Link: confirm device string for Kaga ES4L15BA1 / nRF54L15 when flashing.
+# Same J-Link path as Gen 1. NCS 2.7 names this SoC cortex-m33.
 
-board_runner_args(jlink "--device=nRF54L15_M33" "--speed=4000")
-include(${ZEPHYR_BASE}/boards/common/nrfutil.board.cmake)
+board_runner_args(jlink "--device=cortex-m33" "--speed=4000")
+include(${ZEPHYR_BASE}/boards/common/nrfjprog.board.cmake)
 include(${ZEPHYR_BASE}/boards/common/jlink.board.cmake)
