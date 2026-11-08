@@ -5,6 +5,9 @@
 #ifndef MAXM86161_H
 #define MAXM86161_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include <zephyr/drivers/i2c.h>
 
 typedef enum
@@ -72,6 +75,30 @@ struct ppg_sample
     uint32_t green;
 };
 
+/* MAXM86161 PPG Configuration 2 (0x12): PPG_SR is bits 7:3, SMP_AVE is bits 2:0.
+ * 0x08 is SR 0x01 and averaging 0: nominal 50 sps, one pulse, no FIFO decimation.
+ */
+#define MAXM86161_PPG_SR_SHIFT 3
+#define MAXM86161_PPG_SR_MASK 0xF8
+#define MAXM86161_SMP_AVE_MASK 0x07
+#define MAXM86161_PPG_SR_50SPS 0x01
+#define MAXM86161_SMP_AVE_NONE 0x00
+#define MAXM86161_PPG_CONFIG2_NOMINAL_50HZ \
+	((MAXM86161_PPG_SR_50SPS << MAXM86161_PPG_SR_SHIFT) | MAXM86161_SMP_AVE_NONE)
+
+#define MAXM86161_FIFO_WORD_BYTES 3
+#define MAXM86161_FIFO_MAX_BURST_WORDS 60
+#define MAXM86161_FIFO_MAX_BURST_BYTES 180
+#define MAXM86161_FIFO_TAG_SHIFT 19
+#define MAXM86161_FIFO_ADC_MASK 0x7FFFFu
+/* FIFO tag is the sequence slot (MAXM86161 Table 3), not the LED driver.
+ * 0x01 = LEDC1, 0x02 = LEDC2, 0x03 = LEDC3.
+ * This board writes LEDC1=LED3 (red), LEDC2=LED2 (IR), LEDC3=LED1 (green).
+ */
+#define MAXM86161_FIFO_TAG_LEDC1 0x01u
+#define MAXM86161_FIFO_TAG_LEDC2 0x02u
+#define MAXM86161_FIFO_TAG_LEDC3 0x03u
+
 /**@file
  * @defgroup maxm86161 MAXM86161 Driver implementation
  * @{
@@ -95,6 +122,11 @@ int ppg_sensor_start(const struct i2c_dt_spec *i2c);
 int ppg_sensor_stop(const struct i2c_dt_spec *i2c);
 
 /**
+ * @brief Re-enable the MAXM86161 from power-save without clearing LED PA.
+ */
+int ppg_sensor_ensure_awake(const struct i2c_dt_spec *i2c);
+
+/**
  * @brief Get the latest PPG data
  *
  * @param[in] i2c Pointer to the I2C device
@@ -103,6 +135,15 @@ int ppg_sensor_stop(const struct i2c_dt_spec *i2c);
  * @return int 0 on success, negative error code on failure
  */
 int ppg_sensor_get_data(const struct i2c_dt_spec *i2c, struct ppg_sample *ppg_data, uint8_t *sample_count);
+
+/** @brief True when a previous read left at least one more complete triplet in the FIFO. */
+bool ppg_sensor_fifo_backlog(void);
+
+/** @brief Hardware FIFO overflow events. A word count above one batch is not included. */
+uint32_t ppg_sensor_fifo_overflow_events(void);
+
+/** @brief Times the unread word count exceeded one 60-word burst without overflow. */
+uint32_t ppg_sensor_fifo_backlog_events(void);
 
 /**
  * @brief Read a register from the PPG sensor
