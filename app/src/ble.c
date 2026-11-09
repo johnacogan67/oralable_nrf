@@ -37,8 +37,15 @@ static bool connected;
 static bool advertising;
 /** Fast connectable advertising until this uptime (ms), then slow interval to save energy. */
 static int64_t fast_adv_until_ms;
+static bool mtu_exchange_busy;
+static struct bt_gatt_exchange_params exchange_params;
 
 #define ADV_FALLBACK_S 2
+
+static bool conn_is_current(struct bt_conn *conn)
+{
+    return conn != NULL && conn == current_conn;
+}
 
 static const char *hci_disconnect_reason_str(uint8_t reason)
 {
@@ -129,35 +136,81 @@ void ble_force_recover(const char *why)
     (void)k_work_reschedule(&adv_fallback_work, K_SECONDS(ADV_FALLBACK_S));
 }
 
+static void note_negotiated_att_mtu(struct bt_conn *conn, uint16_t mtu)
+{
+    if (!conn_is_current(conn))
+    {
+        return;
+    }
+
+    LOG_INF("Negotiated ATT MTU %u", mtu);
+    tgm_service_note_att_mtu(mtu);
+}
+
 void mtu_exchange_cb(
     struct bt_conn *conn, uint8_t att_err,
     struct bt_gatt_exchange_params *params)
 {
+    ARG_UNUSED(params);
+    mtu_exchange_busy = false;
+
+    if (!conn_is_current(conn))
+    {
+        return;
+    }
+
     if (att_err)
     {
         LOG_ERR("MTU exchange returned with error code %d", att_err);
+        return;
     }
-    else
-    {
-        LOG_INF("MTU sucessfully set to %d", CONFIG_BT_L2CAP_TX_MTU);
-    }
+
+    note_negotiated_att_mtu(conn, bt_gatt_get_mtu(conn));
 }
+
+static void att_mtu_updated(struct bt_conn *conn, uint16_t tx, uint16_t rx)
+{
+    const uint16_t mtu = tx < rx ? tx : rx;
+
+    LOG_INF("ATT MTU updated tx=%u rx=%u", tx, rx);
+    note_negotiated_att_mtu(conn, mtu);
+}
+
+static struct bt_gatt_cb gatt_callbacks = {
+    .att_mtu_updated = att_mtu_updated,
+};
 
 static void request_mtu_exchange(struct bt_conn *conn)
 {
     int err;
-    static struct bt_gatt_exchange_params exchange_params;
-    exchange_params.func = mtu_exchange_cb;
 
+    if (!conn_is_current(conn))
+    {
+        return;
+    }
+
+    if (mtu_exchange_busy)
+    {
+        return;
+    }
+
+    exchange_params.func = mtu_exchange_cb;
     err = bt_gatt_exchange_mtu(conn, &exchange_params);
-    if (err)
+    if (err == 0)
     {
-        LOG_ERR("MTU exchange failed (err %d)", err);
+        mtu_exchange_busy = true;
+        LOG_INF("MTU exchange pending");
+        return;
     }
-    else
+
+    if (err == -EALREADY)
     {
-        LOG_INF("MTU exchange pending ...");
+        note_negotiated_att_mtu(conn, bt_gatt_get_mtu(conn));
+        return;
     }
+
+    LOG_ERR("MTU exchange failed (err %d)", err);
+    note_negotiated_att_mtu(conn, bt_gatt_get_mtu(conn));
 }
 
 static void request_conn_param_update(struct bt_conn *conn)
@@ -188,12 +241,30 @@ static void request_data_len_update(struct bt_conn *conn)
     if (err)
     {
         LOG_ERR("Data length update request failed: %d", err);
+    }
+    else
+    {
+        LOG_INF("Data length update requested (configured max %d)", CONFIG_BT_CTLR_DATA_LENGTH_MAX);
+    }
+
+    /* ATT MTU is negotiated even when the data-length request fails. */
+    request_mtu_exchange(conn);
+}
+
+#if defined(CONFIG_BT_USER_DATA_LEN_UPDATE)
+static void le_data_len_updated(struct bt_conn *conn, struct bt_conn_le_data_len_info *info)
+{
+    if (!conn_is_current(conn) || info == NULL)
+    {
         return;
     }
 
-    LOG_INF("Data length updated to %d", CONFIG_BT_CTLR_DATA_LENGTH_MAX);
-    request_mtu_exchange(conn);
+    LOG_INF("DLE negotiated tx_octets=%u tx_time=%u rx_octets=%u rx_time=%u",
+            info->tx_max_len, info->tx_max_time, info->rx_max_len, info->rx_max_time);
+    tgm_service_fw_log_printf("fw: dle tx=%u us=%u rx=%u",
+                              info->tx_max_len, info->tx_max_time, info->rx_max_len);
 }
+#endif
 
 void on_connected(struct bt_conn *conn, uint8_t err)
 {
@@ -248,6 +319,7 @@ void on_disconnected(struct bt_conn *conn, uint8_t reason)
         current_conn = NULL;
     }
 
+    mtu_exchange_busy = false;
     if (connected)
     {
         connected = false;
@@ -285,6 +357,9 @@ struct bt_conn_cb connection_callbacks = {
     .connected = on_connected,
     .disconnected = on_disconnected,
     .le_param_updated = on_le_param_updated,
+#if defined(CONFIG_BT_USER_DATA_LEN_UPDATE)
+    .le_data_len_updated = le_data_len_updated,
+#endif
     .recycled = on_recycled,
 };
 
@@ -335,6 +410,7 @@ int ble_init(void)
 {
     // Register connection callbacks
     bt_conn_cb_register(&connection_callbacks);
+    bt_gatt_cb_register(&gatt_callbacks);
 
     k_work_init(&adv_work, advertising_process);
     k_work_init_delayable(&adv_fallback_work, adv_fallback_work_handler);

@@ -1,3 +1,6 @@
 build:
   cmake: .
   kconfig: Kconfig
+  settings:
+    # Repo-root dts/bindings (adi,maxm86161 / st,lis2dtw12 int-gpios).
+    dts_root: ..

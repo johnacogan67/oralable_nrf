@@ -166,3 +166,10 @@
 		int-gpios = <&gpio1 6 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 	};
 };
+
+/* P1.02 (CHRSTS) and P1.03 (SCL) are NFC pins and stay in antenna mode
+ * from reset until PADCONFIG.ENABLE is cleared.
+ */
+&uicr {
+	nfct-pins-as-gpios;
+};

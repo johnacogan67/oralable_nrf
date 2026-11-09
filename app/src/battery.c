@@ -17,6 +17,8 @@
 
 #include "battery.h"
 #include "tgm_service.h"
+#include "power_profiler.h"
+#include "ble.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(battery, CONFIG_APP_LOG_LEVEL);
@@ -42,14 +44,16 @@ LOG_MODULE_REGISTER(battery, CONFIG_APP_LOG_LEVEL);
 #define IMPLAUSIBLE_RAW_MV_MIN  50
 #define IMPLAUSIBLE_RAW_MV_MAX  4000
 
-/* CG-320B user gauge (FW >= 1.0.68): 4.35V = 100%, 3.61V = remapped 0%.
- * Chemistry still discharges toward ~3.0 V; 3.61 V is operational empty so
- * BLE/wireless recovery stay reliable. True protect remains CRITICAL_LOW.
+/* User gauge: charger float = 100%, CONFIG_ORALABLE_GAUGE_VMIN_MV = 0%.
+ * Gen 1 default is the CG-320B curve (3610–4200 mV). Gen 2 overrides the
+ * empty voltage in its board conf. Chemistry still uses 3.0–4.35 V.
+ * True protect remains CRITICAL_LOW (2800 mV).
  */
-#define CG320B_VMAX_MV 4350
-#define CG320B_VMIN_MV  3610
+#define GAUGE_VMAX_MV CONFIG_ORALABLE_GAUGE_VMAX_MV
+#define GAUGE_VMIN_MV CONFIG_ORALABLE_GAUGE_VMIN_MV
 
-/* Chemistry empty for diagnostic % only (not the user gauge). */
+/* Chemistry span for logs only. 4.35 V is the divider peak, not charger float. */
+#define CG320B_CHEMISTRY_VMAX_MV 4350
 #define CG320B_CHEMISTRY_VMIN_MV 3000
 
 /* Critical low threshold - protects cell from over-discharge */
@@ -94,8 +98,11 @@ static int oralable_baten_early_assert(void)
     }
     return gpio_pin_configure_dt(&battery_enable, GPIO_OUTPUT_HIGH);
 }
-SYS_INIT(oralable_baten_early_assert, POST_KERNEL,
-         CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+/* GPIO comes up at PRE_KERNEL_1 priority 40. nRF54 PSA/CRACEN init is
+ * priority 50 in the same level. A debugger halt releases this latch, so
+ * it has to be driven again before that crypto init, not at POST_KERNEL.
+ */
+SYS_INIT(oralable_baten_early_assert, PRE_KERNEL_1, 41);
 
 /* MUST be int16_t. The nRF52 SAADC stores 12-bit samples as a SIGNED 16-bit
  * value. With single-ended input and the divider unpowered/transient, the
@@ -217,7 +224,9 @@ static void take_battery_measurement(struct k_work *work)
         LOG_INF("Battery: %dmV -> gauge=%u%% chem=%u%%",
                 battery_value, battery_pct,
                 battery_voltage_to_chemistry_percent(battery_value));
+        battery_profile_touch();
         tgm_service_send_battery_notify(battery_value);
+        tgm_service_send_battery_usage_notify();
         if (app_data_ready)
         {
             app_data_ready(battery_value);
@@ -295,25 +304,25 @@ int32_t battery_get_last_measurement()
 
 uint8_t battery_voltage_to_percent(int32_t voltage_mv)
 {
-    /* User gauge: 4.35V = 100%, 3.61V = remapped 0% (operational empty). */
-    if (voltage_mv >= CG320B_VMAX_MV) return 100;
-    if (voltage_mv <= CG320B_VMIN_MV) return 0;
+    /* User gauge: float = 100%, GAUGE_VMIN_MV = remapped 0% (operational empty). */
+    if (voltage_mv >= GAUGE_VMAX_MV) return 100;
+    if (voltage_mv <= GAUGE_VMIN_MV) return 0;
     /* percent = (V - Vmin) * 100 / (Vmax - Vmin) */
-    int32_t range = CG320B_VMAX_MV - CG320B_VMIN_MV;
-    int32_t pct = (voltage_mv - CG320B_VMIN_MV) * 100 / range;
+    int32_t range = GAUGE_VMAX_MV - GAUGE_VMIN_MV;
+    int32_t pct = (voltage_mv - GAUGE_VMIN_MV) * 100 / range;
     return (uint8_t)(pct > 100 ? 100 : pct);
 }
 
 uint8_t battery_voltage_to_chemistry_percent(int32_t voltage_mv)
 {
-    /* Full chemistry span: 4.35V = 100%, 3.0V = 0%. */
-    if (voltage_mv >= CG320B_VMAX_MV) {
+    /* Diagnostic span: 4.35 V divider peak = 100%, 3.0 V = 0%. */
+    if (voltage_mv >= CG320B_CHEMISTRY_VMAX_MV) {
         return 100;
     }
     if (voltage_mv <= CG320B_CHEMISTRY_VMIN_MV) {
         return 0;
     }
-    int32_t range = CG320B_VMAX_MV - CG320B_CHEMISTRY_VMIN_MV;
+    int32_t range = CG320B_CHEMISTRY_VMAX_MV - CG320B_CHEMISTRY_VMIN_MV;
     int32_t pct = (voltage_mv - CG320B_CHEMISTRY_VMIN_MV) * 100 / range;
     return (uint8_t)(pct > 100 ? 100 : pct);
 }
@@ -331,19 +340,32 @@ bool battery_below_soft_floor(void)
 
     const uint8_t pct = battery_voltage_to_percent(battery_value);
 
-    return (pct < 5) || (battery_value < CG320B_VMIN_MV);
+    return (pct < 5) || (battery_value < GAUGE_VMIN_MV);
+}
+
+void battery_profile_touch(void)
+{
+    power_profiler_accumulate(ble_is_connected(),
+                              tgm_service_ppg_notify_active(),
+                              tgm_service_is_on_dock(),
+                              battery_value);
 }
 
 void battery_get_usage_telemetry(struct battery_usage_telemetry_t *out)
 {
+    float mah;
+
     if (!out) {
         return;
     }
-    out->voltage_mv = battery_value;
+    out->voltage_mv = battery_value > 0 ? (uint32_t)battery_value : 0;
     out->percent = battery_voltage_to_percent(battery_value);
-    /* app/ target currently has no power_profiler module wired in. */
-    out->mah_consumed_scaled = 0;
-    out->remaining_minutes = 0;
+    mah = power_profiler_get_total_mah();
+    if (mah < 0.0f) {
+        mah = 0.0f;
+    }
+    out->mah_consumed_scaled = (uint32_t)(mah * 100.0f);
+    out->remaining_minutes = power_profiler_get_remaining_minutes();
 }
 
 void battery_set_measurement_interval_seconds(uint16_t seconds)

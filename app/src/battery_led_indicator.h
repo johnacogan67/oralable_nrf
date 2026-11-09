@@ -13,10 +13,15 @@
 
 /** Battery % above which a full-looking SOC is clamped on-pad (legacy). */
 #define BATTERY_LED_FULL_THRESHOLD_PCT 80
-/** On-pad: solid green at/above this SOC even if STAT still blinks. */
-#define BATTERY_LED_HOLD_GREEN_PCT 70
-/** On-pad: solid green at/above this voltage even if STAT still blinks. */
-#define BATTERY_LED_HOLD_GREEN_MV 4050
+/* Gen1 CG-320B hold lines. Gen2 (LP260820) must get its own enter/exit pair. */
+/** Enter hold LED at/above this SOC (~4.10 V on the 3.61–4.20 V gauge). */
+#define BATTERY_LED_HOLD_GREEN_PCT 83
+/** Enter hold LED at/above this cell voltage. Rested full on this case is ~4.15 V. */
+#define BATTERY_LED_HOLD_GREEN_MV 4100
+/** Leave hold LED below this SOC (hysteresis). */
+#define BATTERY_LED_HOLD_GREEN_EXIT_PCT 75
+/** Leave hold LED below this voltage (hysteresis, ~4.05 V). */
+#define BATTERY_LED_HOLD_GREEN_EXIT_MV 4050
 
 int battery_led_indicator_init(void);
 
@@ -27,8 +32,8 @@ int battery_led_indicator_init(void);
  * Status LEDs never use red.
  *
  * On dock (no BLE):
- *   - Flash green only while charging with SOC/voltage still below hold
- *   - Solid green on STAT taper / hold, or when SOC/voltage is already high
+ *   - Flash green while SOC/voltage is below hold (charging or early STAT taper)
+ *   - Rare green pulse when SOC/voltage is in hold (STAT taper or top-up)
  * Off dock: status LEDs off.
  * Caller must not invoke this while BLE is connected (status LEDs off).
  */

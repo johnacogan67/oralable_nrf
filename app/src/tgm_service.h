@@ -58,6 +58,10 @@
 #define BT_UUID_TGM_FW_CONFIG_STATE_VAL \
     BT_UUID_128_ENCODE(0x3a0ff00c, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
 
+/** Usage model (read/notify, 8 bytes). Absent on firmware before 1.0.86. */
+#define BT_UUID_TGM_BATTERY_USAGE_VAL \
+    BT_UUID_128_ENCODE(0x3a0ff00d, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
+
 #define BT_UUID_TGM BT_UUID_DECLARE_128(BT_UUID_TGM_VAL)
 #define BT_UUID_TGM_PPG BT_UUID_DECLARE_128(BT_UUID_TGM_PPG_VAL)
 #define BT_UUID_TGM_ACC BT_UUID_DECLARE_128(BT_UUID_TGM_ACC_VAL)
@@ -71,6 +75,24 @@
 #define BT_UUID_TGM_FW_LOG BT_UUID_DECLARE_128(BT_UUID_TGM_FW_LOG_VAL)
 #define BT_UUID_TGM_FW_CONFIG BT_UUID_DECLARE_128(BT_UUID_TGM_FW_CONFIG_VAL)
 #define BT_UUID_TGM_FW_CONFIG_STATE BT_UUID_DECLARE_128(BT_UUID_TGM_FW_CONFIG_STATE_VAL)
+#define BT_UUID_TGM_BATTERY_USAGE BT_UUID_DECLARE_128(BT_UUID_TGM_BATTERY_USAGE_VAL)
+
+#define TGM_ATT_MTU_DEFAULT 23
+#define TGM_PPG_SAMPLE_STRIDE 12
+#define TGM_ACC_SAMPLE_STRIDE 6
+#define TGM_FRAME_HEADER_BYTES 4
+#define TGM_PPG_FULL_FRAME_BYTES \
+    (TGM_FRAME_HEADER_BYTES + (TGM_PPG_SAMPLE_STRIDE * CONFIG_PPG_SAMPLES_PER_FRAME))
+#define TGM_ACC_FULL_FRAME_BYTES \
+    (TGM_FRAME_HEADER_BYTES + (TGM_ACC_SAMPLE_STRIDE * CONFIG_ACC_SAMPLES_PER_FRAME))
+#define TGM_PPG_FULL_FRAME_MIN_ATT_MTU (TGM_PPG_FULL_FRAME_BYTES + 3)
+#define TGM_ACC_FULL_FRAME_MIN_ATT_MTU (TGM_ACC_FULL_FRAME_BYTES + 3)
+#define TGM_TEMP_VALUE_BYTES 8
+#define TGM_BATTERY_VALUE_BYTES 4
+#define TGM_DEVICE_ID_VALUE_BYTES 8
+#define TGM_STATUS_VALUE_BYTES 5
+#define TGM_FW_CONFIG_STATE_BYTES 16
+#define TGM_BATTERY_USAGE_BYTES 8
 
 #define CONFIG_TEMP_SAMPLES_PER_FRAME 10
 
@@ -223,6 +245,9 @@ void tgm_service_on_connected(void);
 /** @brief Clear notification state when the BLE link drops. */
 void tgm_service_on_disconnect(void);
 
+/** @brief Record the negotiated ATT MTU and start any stream that now fits. */
+void tgm_service_note_att_mtu(uint16_t mtu);
+
 /** @brief Record worn status for GATT. Does not start or stop PPG/ACC.
  *
  * Sensors follow the BLE link (and CCC), not this flag.
@@ -231,6 +256,7 @@ void tgm_service_set_device_worn(bool worn);
 
 /** @brief Mirror charger/dock state so connect probe can be skipped on Qi pad. */
 void tgm_service_set_on_dock(bool on_dock);
+bool tgm_service_is_on_dock(void);
 
 /** @brief User override from `00B` opcode 0x09: 0=auto, 1=charger, 2=idle, 3=worn. */
 uint8_t tgm_service_get_user_device_mode(void);
@@ -252,18 +278,20 @@ bool tgm_service_ppg_stream_live(void);
 
 /** @brief True when PPG/ACC CCC is on but the AFE has produced no samples for 4 s.
  *
- * GATT notify failures (FwLog / -ENOMEM) do not count — only a silent sensor.
+ * A firmware-log notify that succeeded in the last 4 s keeps this false.
  * If PPG CCC is on, ACC/battery success does not keep a dead PPG sensor alive.
  */
 bool tgm_service_sensor_stream_stale(void);
 
 /** @brief True when PPG/ACC CCC is on but no PPG (or ACC-only) notify succeeded for 4 s.
  *
- * A zombie "connected" link can keep the AFE pulsing with no central. Recover
- * that even if samples are still arriving. A live Protocol A link keeps this
- * false because PPG notifies succeed. Soft-floor silence does not count.
+ * A firmware-log notify that succeeded in the last 4 s keeps this false.
+ * Soft-floor silence does not count.
  */
 bool tgm_service_link_notify_idle(void);
+
+/** @brief Record a PPG FIFO read that did not produce a frame. */
+void tgm_service_note_ppg_read(int err, bool empty);
 
 /** @brief Zero PPG LEDs and stop PPG/ACC. Call first on BLE stall recover. */
 void tgm_service_clear_optical_leds(void);
@@ -347,6 +375,14 @@ int tgm_service_send_temp_notify(int16_t new_temp);
  *           Otherwise, a (negative) error code is returned.
  */
 int tgm_service_send_battery_notify(int32_t battery_value);
+
+/**
+ * Notify `3A0FF00D` (8 bytes, little-endian):
+ * voltage_mv u16, gauge u8, flags u8, mAh used x100 u16, minutes left u16.
+ * flags bit0 = model estimate, bit1 = on the case.
+ * minutes 0xFFFF = on the case or no budget yet.
+ */
+int tgm_service_send_battery_usage_notify(void);
 
 /**
  * @brief Notify the client of a PPG register read.

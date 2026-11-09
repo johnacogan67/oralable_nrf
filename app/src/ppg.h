@@ -31,8 +31,9 @@ int ppg_start(void);
 /**
  * @brief Stop PPG FIFO streaming (disable interrupt) but keep the sensor powered
  *        so battery-indicator LEDs keep working.
+ *        Does nothing while PPG notify is on. why is printed in the firmware log.
  */
-int ppg_stop_streaming(void);
+int ppg_stop_streaming(const char *why);
 
 /**
  * @brief Full PPG shutdown (LEDs off, power-save). Use only when powering down sensing.
@@ -57,8 +58,15 @@ int ppg_ensure_awake_status_leds(void);
  */
 void ppg_poll_once(void);
 
-/** @brief Start or stop the periodic PPG poll fallback (500 ms). */
+/** @brief Start or stop the shared 20 ms PPG and accelerometer sample loop. */
 void ppg_set_notify_poll(bool enabled);
+
+/**
+ * @brief Arm the shared sample loop while either sensor notify poll is on.
+ *
+ * The kernel timer only queues work. I2C runs on that work item.
+ */
+void sensor_sample_loop_update(void);
 
 /**
  * @brief Read a register from the PPG sensor and report over BLE

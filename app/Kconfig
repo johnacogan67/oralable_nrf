@@ -37,6 +37,28 @@ config ACC_SAMPLES_PER_FRAME
     help
       Battery sampling interval in seconds.
 
+config ORALABLE_GAUGE_VMIN_MV
+    int "Remapped gauge empty voltage (millivolts)"
+    default 3610
+    help
+      Voltage that the user gauge calls 0%. Gen 1 is the CG-320B floor, 3610 mV.
+      Gen 2 sets a lower empty voltage in its board conf. Critical shutdown
+      stays at 2800 mV.
+
+config ORALABLE_GAUGE_VMAX_MV
+    int "Remapped gauge full voltage (millivolts)"
+    default 4200
+    help
+      Voltage that the user gauge calls 100%. This is the charger float, not
+      the ADC divider peak.
+
+config ORALABLE_I2C_PIN_SCAN
+    bool "Scan I2C pin pairs at boot and replay them on the firmware log"
+    default n
+    help
+      Bench diagnostic for an unsettled pin map. It does not change the board
+      file. Leave it off in the image that will be kept.
+
   config TEMPERATURE_MEASUREMENT_INTERVAL
     int "Temperature measurement interval"
     default 1

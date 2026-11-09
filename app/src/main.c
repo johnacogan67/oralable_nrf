@@ -18,12 +18,40 @@
 #include "battery_led_indicator.h"
 #include "charge_detector.h"
 #include "tgm_service.h"
+#include "i2c_pin_scan.h"
 
 #include <zephyr/logging/log.h>
+#include <hal/nrf_nfct.h>
+#include <hal/nrf_radio.h>
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 
-#define GPIO_NODE DT_NODELABEL(gpio0)
-#define SENS_ENABLE_PIN 8
+/* Two seconds of radio states after advertising is queued. Bit N set means
+ * state N was seen. EVENTS_END is only read. The controller clears it.
+ */
+static void radio_sample_two_seconds(void)
+{
+	uint32_t seen = 0;
+	uint32_t end_seen = 0;
+	const int64_t until = k_uptime_get() + 2000;
+
+	while (k_uptime_get() < until) {
+		nrf_radio_state_t state = nrf_radio_state_get(NRF_RADIO);
+
+		if ((uint32_t)state < 32U) {
+			seen |= BIT((uint32_t)state);
+		}
+		if (NRF_RADIO->EVENTS_END != 0U) {
+			end_seen = 1U;
+		}
+	}
+
+	LOG_INF("radio sample: states=0x%08x end=%u", seen, end_seen);
+}
+
+static const struct gpio_dt_spec baten_gpio =
+	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), baten_gpios);
+static const struct gpio_dt_spec sens_en_gpio =
+	GPIO_DT_SPEC_GET(DT_PATH(zephyr_user), sens_en_gpios);
 
 /** Dim green-only PPG during off-body connect probe (see CONFIG_TGM_CONNECT_PROBE_DURATION_S). */
 #define CONNECT_PROBE_GREEN_PA 5
@@ -31,8 +59,8 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 /** Remapped soft floor (%): stop PPG/ACC; keep MCU, BLE, and charge. */
 #define LOW_BATTERY_BLE_RESCUE_PCT 5
 
-/** Soft floor (mV) = remapped 0% / CG320B_VMIN — not chemical empty (~3.0 V). */
-#define LOW_BATTERY_BLE_RESCUE_MV 3610
+/** Soft floor (mV) = remapped 0%. Gen 1 default 3610. Gen 2 board conf overrides. */
+#define LOW_BATTERY_BLE_RESCUE_MV CONFIG_ORALABLE_GAUGE_VMIN_MV
 
 /** Below this, Protocol A uses dim red/IR so a 6 min session can finish. */
 #define PROTOCOL_A_DIM_LED_MV 3900
@@ -52,7 +80,6 @@ enum device_state_t
 static volatile bool on_dock = false;
 static volatile bool worn = false;
 
-static const struct device *gpio = DEVICE_DT_GET(GPIO_NODE);
 static const struct device *temp_sensor = DEVICE_DT_GET(DT_NODELABEL(temp));
 static const struct gpio_dt_spec chrsts_gpio = GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(zephyr_user), chrsts_gpios, 0);
 
@@ -541,7 +568,7 @@ static int16_t read_die_temp_centi(void)
 
 static int chrsts_pin_physical(void)
 {
-	return gpio_pin_get(gpio, chrsts_gpio.pin);
+	return gpio_pin_get_dt(&chrsts_gpio);
 }
 
 static void chrsts_log_snapshot(const char *tag, bool majority_on_dock)
@@ -834,9 +861,62 @@ static void ble_link_connected_cb(void)
 	chrsts_log_snapshot("link", chrsts_read_on_dock_majority());
 }
 
+static void apply_probe_green_leds(void)
+{
+	(void)ppg_ensure_awake();
+	(void)ppg_set_led_pa(PPG_LED_RED, 0);
+	(void)ppg_set_led_pa(PPG_LED_IR, 0);
+	(void)ppg_set_led_pa(PPG_LED_GREEN, CONNECT_PROBE_GREEN_PA);
+}
+
+static int32_t probe_green_logged_mv;
+
+static void log_probe_green(bool sag, int32_t mv, int32_t cached)
+{
+	const int32_t judge = (mv > 0) ? mv : cached;
+	int32_t delta = judge - probe_green_logged_mv;
+
+	if (delta < 0)
+	{
+		delta = -delta;
+	}
+	if (probe_green_logged_mv != 0 && delta < 50)
+	{
+		return;
+	}
+	probe_green_logged_mv = judge;
+	if (sag)
+	{
+		tgm_service_fw_log_printf("fw: bat sag probe green mv=%d pa=%u",
+					  mv, CONNECT_PROBE_GREEN_PA);
+	}
+	else
+	{
+		tgm_service_fw_log_printf(
+			"fw: bat hold probe green mv=%d cached=%d pa=%u",
+			mv, cached, CONNECT_PROBE_GREEN_PA);
+	}
+}
+
 static void apply_worn_sensing_leds(void)
 {
 	const int32_t cached_mv = battery_get_last_measurement();
+	const int32_t under_mv = battery_read_now_mv();
+	const int32_t judge_mv = (under_mv > 0) ? under_mv : cached_mv;
+
+	/* Red/IR at the dim setting still dropped the radio on this cell.
+	 * Stay on the connect-probe green until a reading under that load
+	 * is at or above the dim threshold.
+	 */
+	if (judge_mv > 0 && judge_mv < PROTOCOL_A_DIM_LED_MV)
+	{
+		apply_probe_green_leds();
+		log_probe_green(false, under_mv, cached_mv);
+		LOG_INF("Hold probe green PA=%u cached=%dmV under=%dmV",
+			CONNECT_PROBE_GREEN_PA, cached_mv, under_mv);
+		return;
+	}
+
 	bool dim = (cached_mv > 0 && cached_mv < PROTOCOL_A_DIM_LED_MV);
 	uint8_t red_pa = dim ? WORN_LED_RED_DIM : WORN_LED_RED_FULL;
 	uint8_t ir_pa = dim ? WORN_LED_IR_DIM : WORN_LED_IR_FULL;
@@ -846,21 +926,15 @@ static void apply_worn_sensing_leds(void)
 	(void)ppg_set_led_pa(PPG_LED_RED, red_pa);
 	(void)ppg_set_led_pa(PPG_LED_IR, ir_pa);
 
-	const int32_t under_mv = battery_read_now_mv();
-
 	if (under_mv > 0)
 	{
 		tgm_service_fw_log_printf("fw: bat under_load mv=%d cached=%d dim=%u",
 					  under_mv, cached_mv, dim ? 1u : 0u);
-		if (under_mv < PROTOCOL_A_DIM_LED_MV && !dim)
+		if (under_mv < PROTOCOL_A_DIM_LED_MV)
 		{
-			dim = true;
-			red_pa = WORN_LED_RED_DIM;
-			ir_pa = WORN_LED_IR_DIM;
-			(void)ppg_set_led_pa(PPG_LED_RED, red_pa);
-			(void)ppg_set_led_pa(PPG_LED_IR, ir_pa);
-			tgm_service_fw_log_printf("fw: bat sag dim leds ir=%u red=%u",
-						  ir_pa, red_pa);
+			apply_probe_green_leds();
+			log_probe_green(true, under_mv, cached_mv);
+			return;
 		}
 	}
 	else
@@ -869,6 +943,7 @@ static void apply_worn_sensing_leds(void)
 					  cached_mv, dim ? 1u : 0u);
 	}
 
+	probe_green_logged_mv = 0;
 	LOG_INF("Worn sensing LEDs red=%u ir=%u cached=%dmV under=%dmV",
 		red_pa, ir_pa, cached_mv, under_mv);
 }
@@ -1045,21 +1120,21 @@ int main(void)
 
 	printk("TGM Application %s\n", APP_VERSION_STRING);
 
-	if (!device_is_ready(gpio))
+	if (!gpio_is_ready_dt(&baten_gpio) || !gpio_is_ready_dt(&sens_en_gpio))
 	{
-		LOG_ERR("GPIO is not ready");
+		LOG_ERR("Power GPIO is not ready");
 		return -1;
 	}
 
-	err = gpio_pin_configure(gpio, 10, GPIO_OUTPUT_HIGH);
+	err = gpio_pin_configure_dt(&baten_gpio, GPIO_OUTPUT_HIGH);
 	if (err)
 	{
-		LOG_ERR("Failed to latch BATEN (P0.10), err=%d", err);
+		LOG_ERR("Failed to latch BATEN pin %d, err=%d", baten_gpio.pin, err);
 		return err;
 	}
-	printk("*** BATTERY POWER ENABLED ON P0.10 ***\n");
+	printk("*** BATTERY POWER ENABLED ON PIN %d ***\n", baten_gpio.pin);
 
-	err = gpio_pin_configure(gpio, SENS_ENABLE_PIN, GPIO_OUTPUT_HIGH);
+	err = gpio_pin_configure_dt(&sens_en_gpio, GPIO_OUTPUT_HIGH);
 
 	err = ble_init();
 	if (err)
@@ -1074,6 +1149,7 @@ int main(void)
 	k_work_init_delayable(&temperature_work, temperature_work_handler);
 
 	ble_adv_start();
+	radio_sample_two_seconds();
 
 	err = battery_init(battery_measurement_ready);
 	if (err)
@@ -1087,7 +1163,7 @@ int main(void)
 		LOG_ERR("battery_start_measurement() returned %d", err);
 	}
 
-	err = gpio_pin_set(gpio, SENS_ENABLE_PIN, 1);
+	err = gpio_pin_set_dt(&sens_en_gpio, 1);
 	if (err)
 	{
 		LOG_ERR("Failed to enable sensor power");
@@ -1095,6 +1171,22 @@ int main(void)
 	}
 
 	k_sleep(K_MSEC(100));
+
+	/* NCS 2.9.3 applies nfct-pins-as-gpios only inside the CMSE startup
+	 * path. This image is not built with CMSE, so clear the pad here.
+	 * SCL is P1.03 (NFC2). CHRSTS is P1.02 (NFC1).
+	 * nRF52832 has no PADCONFIG register, so the HAL leaves the
+	 * symbols out. Keep the clear on nRF54L15 only.
+	 */
+#if NRF_NFCT_HAS_PAD_CONFIG_REG
+	printk("NFCT PADCONFIG before %u\n",
+	       (unsigned)nrf_nfct_pad_config_enable_check(NRF_NFCT));
+	nrf_nfct_pad_config_enable_set(NRF_NFCT, false);
+	printk("NFCT PADCONFIG after %u\n",
+	       (unsigned)nrf_nfct_pad_config_enable_check(NRF_NFCT));
+#endif
+
+	i2c_pin_scan_run();
 
 	err = ppg_init();
 	if (err)
@@ -1116,7 +1208,7 @@ int main(void)
 	}
 
 	gpio_init_callback(&chrsts_cb, chrsts_callback, BIT(chrsts_gpio.pin));
-	err = gpio_add_callback(gpio, &chrsts_cb);
+	err = gpio_add_callback(chrsts_gpio.port, &chrsts_cb);
 	if (err)
 	{
 		LOG_ERR("Failed to add callback to chrsts pin");
@@ -1139,7 +1231,7 @@ int main(void)
 #endif
 	chrsts_log_snapshot("boot", on_dock);
 
-	err = gpio_pin_interrupt_configure(gpio, chrsts_gpio.pin, GPIO_INT_EDGE_BOTH);
+	err = gpio_pin_interrupt_configure_dt(&chrsts_gpio, GPIO_INT_EDGE_BOTH);
 	if (err)
 	{
 		LOG_ERR("Failed to configure chrsts pin interrupt");
@@ -1160,7 +1252,7 @@ int main(void)
 	uint8_t led_refresh_s = 0;
 	uint8_t dock_battery_s = 0;
 	while (1) {
-		(void)gpio_pin_set(gpio, 10, 1);
+		(void)gpio_pin_set_dt(&baten_gpio, 1);
 		ble_ensure_advertising();
 		if (++dock_poll_s >= 3) {
 			dock_poll_s = 0;
