@@ -1,16 +1,39 @@
 # Zephyr's version parser cannot keep hyphens in EXTRAVERSION.
-# Rewrite the two string macros after gen_version_h.cmake has filled the numbers.
+# GATT 006 reads APP_VERSION_STRING. Write it from the MCUboot sign
+# version so 2.0.0 and 2.0.1 are different reads.
 if(NOT HEADER)
   message(FATAL_ERROR "HEADER is required")
 endif()
+if(NOT SIGN_CONF)
+  message(FATAL_ERROR "SIGN_CONF is required")
+endif()
+
+file(READ "${SIGN_CONF}" conf)
+if(NOT conf MATCHES "CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION=\"([0-9]+)\\.([0-9]+)\\.([0-9]+)(\\+([0-9]+))?\"")
+  message(FATAL_ERROR "CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION is missing from ${SIGN_CONF}")
+endif()
+set(ver_major "${CMAKE_MATCH_1}")
+set(ver_minor "${CMAKE_MATCH_2}")
+set(ver_patch "${CMAKE_MATCH_3}")
+if(CMAKE_MATCH_5)
+  set(ver_tweak "${CMAKE_MATCH_5}")
+else()
+  set(ver_tweak "0")
+endif()
+set(ver "${ver_major}.${ver_minor}.${ver_patch}")
+set(gatt "${ver}-gen2-nrfconnect")
+math(EXPR ver_number "(${ver_major} << 16) + (${ver_minor} << 8) + ${ver_patch}" OUTPUT_FORMAT HEXADECIMAL)
+math(EXPR ver_app "(${ver_major} << 24) + (${ver_minor} << 16) + (${ver_patch} << 8) + ${ver_tweak}" OUTPUT_FORMAT HEXADECIMAL)
 
 file(READ "${HEADER}" text)
-string(REGEX REPLACE
-  "#define APP_VERSION_STRING[^\n]*"
-  "#define APP_VERSION_STRING           \"2.0.0-gen2-nrfconnect\""
-  text "${text}")
-string(REGEX REPLACE
-  "#define APP_VERSION_EXTENDED_STRING[^\n]*"
-  "#define APP_VERSION_EXTENDED_STRING  \"2.0.0-gen2-nrfconnect+0\""
-  text "${text}")
+string(REGEX REPLACE "#define APPVERSION[^\n]*" "#define APPVERSION                   ${ver_app}" text "${text}")
+string(REGEX REPLACE "#define APP_VERSION_NUMBER[^\n]*" "#define APP_VERSION_NUMBER           ${ver_number}" text "${text}")
+string(REGEX REPLACE "#define APP_VERSION_MAJOR[^\n]*" "#define APP_VERSION_MAJOR            ${ver_major}" text "${text}")
+string(REGEX REPLACE "#define APP_VERSION_MINOR[^\n]*" "#define APP_VERSION_MINOR            ${ver_minor}" text "${text}")
+string(REGEX REPLACE "#define APP_PATCHLEVEL[^\n]*" "#define APP_PATCHLEVEL               ${ver_patch}" text "${text}")
+string(REGEX REPLACE "#define APP_TWEAK[^\n]*" "#define APP_TWEAK                    ${ver_tweak}" text "${text}")
+string(REGEX REPLACE "#define APP_VERSION_STRING[^\n]*" "#define APP_VERSION_STRING           \"${gatt}\"" text "${text}")
+string(REGEX REPLACE "#define APP_VERSION_EXTENDED_STRING[^\n]*" "#define APP_VERSION_EXTENDED_STRING  \"${gatt}+${ver_tweak}\"" text "${text}")
+string(REGEX REPLACE "#define APP_VERSION_TWEAK_STRING[^\n]*" "#define APP_VERSION_TWEAK_STRING     \"${ver}+${ver_tweak}\"" text "${text}")
 file(WRITE "${HEADER}" "${text}")
+message(STATUS "GATT 006 version ${gatt}")

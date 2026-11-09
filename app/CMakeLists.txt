@@ -68,6 +68,7 @@ if("${ORALABLE_BUILD_HINT}" MATCHES "pcb00003_gen2|nrf54l15|gen2_|v2\\.9")
     message(FATAL_ERROR "ZEPHYR_BASE is required to stamp the Gen 2 version")
   endif()
   set(GEN2_VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../boards/byteexplain/pcb00003_gen2/VERSION.gen2")
+  set(GEN2_SIGN_CONF "${CMAKE_CURRENT_SOURCE_DIR}/boards/pcb00003_gen2_nrf54l15_cpuapp.conf")
   set(GEN2_APP_VERSION_H "${CMAKE_BINARY_DIR}/zephyr/include/generated/zephyr/app_version.h")
   add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/gen2_version.stamp
@@ -77,11 +78,12 @@ if("${ORALABLE_BUILD_HINT}" MATCHES "pcb00003_gen2|nrf54l15|gen2_|v2\\.9")
             -DVERSION_FILE=${GEN2_VERSION_FILE}
             -P $ENV{ZEPHYR_BASE}/cmake/gen_version_h.cmake
     COMMAND ${CMAKE_COMMAND} -DHEADER=${GEN2_APP_VERSION_H}
+            -DSIGN_CONF=${GEN2_SIGN_CONF}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gen2_version_string.cmake
     COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/gen2_version.stamp
-    DEPENDS ${GEN2_VERSION_FILE} ${GEN2_APP_VERSION_H}
+    DEPENDS ${GEN2_VERSION_FILE} ${GEN2_SIGN_CONF} ${GEN2_APP_VERSION_H}
             ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gen2_version_string.cmake
-    COMMENT "Gen 2 version from VERSION.gen2"
+    COMMENT "Gen 2 version from the MCUboot sign version"
     VERBATIM
   )
   add_custom_target(gen2_app_version DEPENDS ${CMAKE_BINARY_DIR}/gen2_version.stamp)

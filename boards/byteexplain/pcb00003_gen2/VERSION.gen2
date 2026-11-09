@@ -1,7 +1,7 @@
 # Gen 2 candidate string. app/VERSION stays the Gen 1 number.
 # Zephyr 2.9.3 reads EXTRAVERSION as letters and digits only, so the hyphenated
 # suffix is dropped. app/cmake/gen2_version_string.cmake writes the string
-# GATT 006 should return: 2.0.0-gen2-nrfconnect.
+# GATT 006 is the MCUboot sign version plus -gen2-nrfconnect.
 VERSION_MAJOR = 2
 VERSION_MINOR = 0
 PATCHLEVEL = 0

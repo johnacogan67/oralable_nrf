@@ -106,7 +106,7 @@ static struct tgm_service_temp_data_t tgm_service_temp_data;
 static struct tgm_service_status_t device_status;
 static int32_t bat_value;
 static uint64_t uuid_value;
-/* 2.0.0-gen2-nrfconnect is 21 characters. The old 15-byte buffer would clip it. */
+/* 2.0.1-gen2-nrfconnect is 22 characters. The old 15-byte buffer would clip it. */
 static char fw_version[32] = APP_VERSION_STRING;
 
 BUILD_ASSERT(TGM_PPG_FULL_FRAME_BYTES == 244);
