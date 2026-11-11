@@ -153,6 +153,7 @@ static void ppg_deliver(int err, struct ppg_sample *samples, uint8_t count)
 	if (count == 0)
 	{
 		tgm_service_note_ppg_read(0, true);
+		(void)tgm_service_send_ppg_notify(samples, 0);
 		return;
 	}
 
@@ -173,6 +174,7 @@ static void acc_deliver(int err, struct acc_sample *samples, uint8_t count)
 
 	if (count == 0)
 	{
+		(void)tgm_service_send_acc_notify(samples, 0);
 		return;
 	}
 

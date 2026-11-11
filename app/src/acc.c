@@ -82,6 +82,7 @@ static void acc_read_and_notify(void)
 
     if (sample_count == 0)
     {
+        (void)tgm_service_send_acc_notify(acc_data, 0);
         return;
     }
 

@@ -99,6 +99,14 @@ static int64_t mode3_soft_floor_hold_until_ms;
 
 static uint32_t ppg_frame_counter = 0;
 static uint32_t acc_frame_counter = 0;
+/* Non-zero while a notify was refused. The same bytes are sent again. */
+static uint16_t ppg_held_len;
+static uint16_t acc_held_len;
+/* The 20 ms poll reads about one sample. Notify only a full frame. */
+static struct ppg_sample ppg_batch[CONFIG_PPG_SAMPLES_PER_FRAME];
+static uint8_t ppg_batch_n;
+static struct acc_sample acc_batch[CONFIG_ACC_SAMPLES_PER_FRAME];
+static uint8_t acc_batch_n;
 
 static struct tgm_service_ppg_data_t tgm_service_ppg_data;
 static struct tgm_service_acc_data_t tgm_service_acc_data;
@@ -976,6 +984,8 @@ static void tgm_service_suspend_sensor_streams(void)
     (void)ppg_set_led_pa(PPG_LED_IR, 0);
     (void)ppg_set_led_pa(PPG_LED_GREEN, 0);
     ppg_set_notify_poll(false);
+    ppg_batch_n = 0;
+    acc_batch_n = 0;
     (void)ppg_stop();
     (void)acc_stop();
 }
@@ -1154,6 +1164,8 @@ static void tgm_service_ccc_ppg_data_cfg_changed(const struct bt_gatt_attr *attr
     }
     else
     {
+        ppg_held_len = 0;
+        ppg_batch_n = 0;
         ppg_set_notify_poll(false);
         (void)ppg_stop();
     }
@@ -1178,6 +1190,8 @@ static void tgm_service_ccc_acc_data_cfg_changed(const struct bt_gatt_attr *attr
     }
     else
     {
+        acc_held_len = 0;
+        acc_batch_n = 0;
         (void)acc_stop();
     }
 }
@@ -1849,6 +1863,10 @@ void tgm_service_on_disconnect(void)
 
     notify_ppg_data = false;
     notify_acc_data = false;
+    ppg_held_len = 0;
+    acc_held_len = 0;
+    ppg_batch_n = 0;
+    acc_batch_n = 0;
     notify_temp_data = false;
     notify_battery = false;
     notify_read_ppg_reg = false;
@@ -2018,14 +2036,88 @@ static void ir_pulse_feed(const struct ppg_sample *samples, uint8_t n)
     }
 }
 
+static int notify_counted_frame(const struct bt_gatt_attr *attr, uint8_t *wire, uint16_t len,
+                                uint16_t *held_len, uint32_t *counter, uint32_t *ok,
+                                uint32_t *fail, int32_t *last_err, const char *label)
+{
+    const int err = gatt_notify_admitted(attr, wire, len, label, true);
+
+    if (err)
+    {
+        (*fail)++;
+        *last_err = err;
+        /* Keep this frame. A new payload with the same counter is a different error. */
+        if ((err == -ENOMEM || err == -ENOBUFS) && *held_len == 0)
+        {
+            *held_len = len;
+        }
+        return err;
+    }
+
+    *held_len = 0;
+    (*counter)++;
+    (*ok)++;
+    return 0;
+}
+
+static int ppg_emit_batch(void)
+{
+    uint16_t offset = TGM_FRAME_HEADER_BYTES;
+
+    sys_put_le32(ppg_frame_counter, ppg_wire);
+    tgm_service_ppg_data.frame_counter = ppg_frame_counter;
+    for (uint8_t i = 0; i < CONFIG_PPG_SAMPLES_PER_FRAME; i++)
+    {
+        tgm_service_ppg_data.ppg_data[i] = ppg_batch[i];
+        sys_put_le32(ppg_batch[i].red, &ppg_wire[offset]);
+        sys_put_le32(ppg_batch[i].ir, &ppg_wire[offset + 4]);
+        sys_put_le32(ppg_batch[i].green, &ppg_wire[offset + 8]);
+        offset = (uint16_t)(offset + TGM_PPG_SAMPLE_STRIDE);
+    }
+    ppg_batch_n = 0;
+
+    const int err = notify_counted_frame(&tgm_service_svc.attrs[TGM_ATTR_PPG_VALUE],
+                                         ppg_wire, offset, &ppg_held_len,
+                                         &ppg_frame_counter, &ppg_notify_ok,
+                                         &ppg_notify_err, &ppg_last_notify_err, "ppg");
+    ppg_quiet_empty = 0;
+    if (err)
+    {
+        ppg_quiet_err = err;
+    }
+    else
+    {
+        last_ppg_notify_ok_ms = k_uptime_get();
+        ppg_quiet_err = 0;
+    }
+    return err;
+}
+
 int tgm_service_send_ppg_notify(struct ppg_sample *ppg_data, uint8_t sample_cnt)
 {
-    uint16_t notify_len;
-    uint16_t offset;
+    uint8_t src = 0;
 
     if (!streaming_allowed() || !notify_ppg_data || ppg_mtu_blocks_stream())
     {
+        ppg_batch_n = 0;
         return -EACCES;
+    }
+
+    if (ppg_held_len != 0)
+    {
+        const int err = notify_counted_frame(&tgm_service_svc.attrs[TGM_ATTR_PPG_VALUE],
+                                              ppg_wire, ppg_held_len, &ppg_held_len,
+                                              &ppg_frame_counter, &ppg_notify_ok,
+                                              &ppg_notify_err, &ppg_last_notify_err, "ppg");
+
+        ppg_quiet_empty = 0;
+        if (err)
+        {
+            ppg_quiet_err = err;
+            return err;
+        }
+        last_ppg_notify_ok_ms = k_uptime_get();
+        ppg_quiet_err = 0;
     }
 
     if (sample_cnt == 0)
@@ -2038,50 +2130,87 @@ int tgm_service_send_ppg_notify(struct ppg_sample *ppg_data, uint8_t sample_cnt)
         return -EINVAL;
     }
 
-    ir_pulse_feed(ppg_data, sample_cnt);
-    last_ppg_sample_ms = k_uptime_get();
+    while (src < sample_cnt)
+    {
+        const uint8_t room = (uint8_t)(CONFIG_PPG_SAMPLES_PER_FRAME - ppg_batch_n);
+        uint8_t take = (uint8_t)(sample_cnt - src);
 
-    sys_put_le32(ppg_frame_counter, ppg_wire);
-    tgm_service_ppg_data.frame_counter = ppg_frame_counter;
-    ppg_frame_counter++;
-    offset = TGM_FRAME_HEADER_BYTES;
-    for (uint8_t i = 0; i < sample_cnt; i++)
-    {
-        tgm_service_ppg_data.ppg_data[i] = ppg_data[i];
-        sys_put_le32(ppg_data[i].red, &ppg_wire[offset]);
-        sys_put_le32(ppg_data[i].ir, &ppg_wire[offset + 4]);
-        sys_put_le32(ppg_data[i].green, &ppg_wire[offset + 8]);
-        offset = (uint16_t)(offset + TGM_PPG_SAMPLE_STRIDE);
-    }
-    notify_len = offset;
+        if (take > room)
+        {
+            take = room;
+        }
 
-    const int err = gatt_notify_admitted(&tgm_service_svc.attrs[TGM_ATTR_PPG_VALUE],
-                                         ppg_wire, notify_len, "ppg", true);
-    if (err)
-    {
-        ppg_notify_err++;
-        ppg_last_notify_err = err;
-        ppg_quiet_err = err;
+        memcpy(&ppg_batch[ppg_batch_n], &ppg_data[src], (size_t)take * sizeof(ppg_batch[0]));
+        ir_pulse_feed(&ppg_data[src], take);
+        ppg_batch_n = (uint8_t)(ppg_batch_n + take);
+        src = (uint8_t)(src + take);
+        last_ppg_sample_ms = k_uptime_get();
         ppg_quiet_empty = 0;
+
+        if (ppg_batch_n < CONFIG_PPG_SAMPLES_PER_FRAME)
+        {
+            return 0;
+        }
+
+        const int err = ppg_emit_batch();
+        if (err)
+        {
+            return err;
+        }
     }
-    else
+
+    return 0;
+}
+
+static int acc_emit_batch(void)
+{
+    uint16_t offset = TGM_FRAME_HEADER_BYTES;
+
+    sys_put_le32(acc_frame_counter, acc_wire);
+    tgm_service_acc_data.frame_counter = acc_frame_counter;
+    for (uint8_t i = 0; i < CONFIG_ACC_SAMPLES_PER_FRAME; i++)
     {
-        ppg_notify_ok++;
-        last_ppg_notify_ok_ms = k_uptime_get();
-        ppg_quiet_err = 0;
-        ppg_quiet_empty = 0;
+        tgm_service_acc_data.acc_data[i] = acc_batch[i];
+        sys_put_le16((uint16_t)acc_batch[i].x, &acc_wire[offset]);
+        sys_put_le16((uint16_t)acc_batch[i].y, &acc_wire[offset + 2]);
+        sys_put_le16((uint16_t)acc_batch[i].z, &acc_wire[offset + 4]);
+        offset = (uint16_t)(offset + TGM_ACC_SAMPLE_STRIDE);
+    }
+    acc_batch_n = 0;
+
+    const int err = notify_counted_frame(&tgm_service_svc.attrs[TGM_ATTR_ACC_VALUE],
+                                         acc_wire, offset, &acc_held_len,
+                                         &acc_frame_counter, &acc_notify_ok,
+                                         &acc_notify_err, &acc_last_notify_err, "acc");
+    if (!err)
+    {
+        last_acc_notify_ok_ms = k_uptime_get();
     }
     return err;
 }
 
 int tgm_service_send_acc_notify(struct acc_sample *acc_data, uint8_t sample_cnt)
 {
-    uint16_t notify_len;
-    uint16_t offset;
+    uint8_t src = 0;
 
     if (!streaming_allowed() || !notify_acc_data || acc_mtu_blocks_stream())
     {
+        acc_batch_n = 0;
         return -EACCES;
+    }
+
+    if (acc_held_len != 0)
+    {
+        const int err = notify_counted_frame(&tgm_service_svc.attrs[TGM_ATTR_ACC_VALUE],
+                                              acc_wire, acc_held_len, &acc_held_len,
+                                              &acc_frame_counter, &acc_notify_ok,
+                                              &acc_notify_err, &acc_last_notify_err, "acc");
+
+        if (err)
+        {
+            return err;
+        }
+        last_acc_notify_ok_ms = k_uptime_get();
     }
 
     if (sample_cnt == 0)
@@ -2094,35 +2223,35 @@ int tgm_service_send_acc_notify(struct acc_sample *acc_data, uint8_t sample_cnt)
         return -EINVAL;
     }
 
-    sys_put_le32(acc_frame_counter, acc_wire);
-    tgm_service_acc_data.frame_counter = acc_frame_counter;
-    acc_frame_counter++;
-    offset = TGM_FRAME_HEADER_BYTES;
-    for (uint8_t i = 0; i < sample_cnt; i++)
+    while (src < sample_cnt)
     {
-        tgm_service_acc_data.acc_data[i] = acc_data[i];
-        sys_put_le16((uint16_t)acc_data[i].x, &acc_wire[offset]);
-        sys_put_le16((uint16_t)acc_data[i].y, &acc_wire[offset + 2]);
-        sys_put_le16((uint16_t)acc_data[i].z, &acc_wire[offset + 4]);
-        offset = (uint16_t)(offset + TGM_ACC_SAMPLE_STRIDE);
-    }
-    notify_len = offset;
-    last_acc_sample_ms = k_uptime_get();
-    acc_motion_feed(acc_data, sample_cnt);
+        const uint8_t room = (uint8_t)(CONFIG_ACC_SAMPLES_PER_FRAME - acc_batch_n);
+        uint8_t take = (uint8_t)(sample_cnt - src);
 
-    const int err = gatt_notify_admitted(&tgm_service_svc.attrs[TGM_ATTR_ACC_VALUE],
-                                         acc_wire, notify_len, "acc", true);
-    if (err)
-    {
-        acc_notify_err++;
-        acc_last_notify_err = err;
+        if (take > room)
+        {
+            take = room;
+        }
+
+        memcpy(&acc_batch[acc_batch_n], &acc_data[src], (size_t)take * sizeof(acc_batch[0]));
+        acc_motion_feed(&acc_data[src], take);
+        acc_batch_n = (uint8_t)(acc_batch_n + take);
+        src = (uint8_t)(src + take);
+        last_acc_sample_ms = k_uptime_get();
+
+        if (acc_batch_n < CONFIG_ACC_SAMPLES_PER_FRAME)
+        {
+            return 0;
+        }
+
+        const int err = acc_emit_batch();
+        if (err)
+        {
+            return err;
+        }
     }
-    else
-    {
-        acc_notify_ok++;
-        last_acc_notify_ok_ms = k_uptime_get();
-    }
-    return err;
+
+    return 0;
 }
 
 int tgm_service_send_temp_notify(int16_t new_temp)
