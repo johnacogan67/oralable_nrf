@@ -59,7 +59,7 @@ static const struct gpio_dt_spec sens_en_gpio =
 /** Remapped soft floor (%): stop PPG/ACC; keep MCU, BLE, and charge. */
 #define LOW_BATTERY_BLE_RESCUE_PCT 5
 
-/** Soft floor (mV) = remapped 0%. Gen 1 default 3610. Gen 2 board conf overrides. */
+/** Soft floor (mV) = gauge 0%. Gen 2 board conf sets 3300. */
 #define LOW_BATTERY_BLE_RESCUE_MV CONFIG_ORALABLE_GAUGE_VMIN_MV
 
 /** Below this, Protocol A uses dim red/IR so a 6 min session can finish. */

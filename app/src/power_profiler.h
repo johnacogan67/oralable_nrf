@@ -1,12 +1,12 @@
 /*
- * Model of charge used on the CG-320B. There is no current shunt on pcb00003.
- * Currents are design figures, not a bench meter:
- *   stream  1.875 mA  (15 mAh / 8 h worn stream)
+ * Minutes model for the LP270829 (35 mAh). There is no current shunt.
+ * Currents are the old design figures, not a bench meter:
+ *   stream  1.875 mA
  *   linked  0.80 mA   (BLE up, PPG notify off)
  *   idle    0.20 mA   (advertising, off the case)
  * Discharge is integrated only while off the Oralable case.
  * Sitting on the case clears the session and the next undock takes a fresh
- * budget from the chemistry voltage (3.0 V = 0%, 4.35 V = 100%) times 15 mAh.
+ * budget from the chemistry voltage (3.0 V = 0%, 4.35 V = 100%) times 35 mAh.
  */
 
 #ifndef POWER_PROFILER_H_

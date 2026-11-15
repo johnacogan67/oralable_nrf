@@ -2,7 +2,7 @@
  * Copyright (c) 2024 WeeGee bv
  * PROJECT: POWER_PROFILER_INTEGRATION (2026-02-27)
  *
- * nRF52832 SAADC battery measurement for CG-320B (15 mAh).
+ * SAADC battery measurement. Gen 2 cell is the LP270829, 35 mAh.
  * ADC: 12-bit, 0.6V internal ref, devicetree gain (PCB uses ADC_GAIN_1).
  * For REV10 with 1/6 gain: add overlay with zephyr,gain = "ADC_GAIN_1_6".
  * Voltage divider scale 11: 4.35V peak -> ~0.395V at ADC input.
@@ -45,8 +45,7 @@ LOG_MODULE_REGISTER(battery, CONFIG_APP_LOG_LEVEL);
 #define IMPLAUSIBLE_RAW_MV_MAX  4000
 
 /* User gauge: charger float = 100%, CONFIG_ORALABLE_GAUGE_VMIN_MV = 0%.
- * Gen 1 default is the CG-320B curve (3610–4200 mV). Gen 2 overrides the
- * empty voltage in its board conf. Chemistry still uses 3.0–4.35 V.
+ * Gen 2 board conf sets 3300–4200 mV. Chemistry logs still use 3.0–4.35 V.
  * True protect remains CRITICAL_LOW (2800 mV).
  */
 #define GAUGE_VMAX_MV CONFIG_ORALABLE_GAUGE_VMAX_MV

@@ -3,7 +3,7 @@
 
 #include <zephyr/kernel.h>
 
-#define CG320B_CAPACITY_MAH 15.0f
+#define CELL_CAPACITY_MAH 35.0f
 #define PROFILE_MA_STREAM 1.875f
 #define PROFILE_MA_CONNECTED 0.80f
 #define PROFILE_MA_IDLE 0.20f
@@ -38,7 +38,7 @@ static void latch_budget(int32_t voltage_mv)
 	}
 
 	chem = battery_voltage_to_chemistry_percent(voltage_mv);
-	budget_mah = CG320B_CAPACITY_MAH * ((float)chem / 100.0f);
+	budget_mah = CELL_CAPACITY_MAH * ((float)chem / 100.0f);
 	budget_latched = true;
 }
 

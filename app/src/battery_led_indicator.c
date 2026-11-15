@@ -1,29 +1,31 @@
 /*
  * Copyright (c) 2024 WeeGee bv
  *
- * Off-body battery status using PPG LEDs (Phase 0 vitals policy):
+ * Off-body battery status using the optical LEDs:
  *
- * Status LEDs are green-only. Never drive red for charge / idle status.
+ * Off dock: LEDs off. A coil that misses completely looks the same,
+ * because the status pin never moves.
  *
- * On dock / charger (no BLE):
- *   - Flash green while SOC/voltage is still below hold (STAT charging or
- *     early taper). LTC4124 STAT taper alone is not "full".
- *   - Rare green pulse when SOC/voltage is in hold. Continuous solid green
- *     would drain a small cell after the charger has stopped.
- *   - If voltage sags out of hold, flash again until the cell is back in
- *     hold (LTC4124 recharge / STAT blink).
+ * On dock, cell in hold (4.20 V): short green flash every 10 s.
+ * The slow flash ends once the cell falls below 4.10 V.
+ * A solid green would keep drawing after the charger has stopped.
  *
- * Off dock (no BLE): status LEDs off.
+ * On dock, under hold: green flash (350 ms on, 2 s off) while the window
+ * is open or the cell has risen. The pin blinks for a weak couple the
+ * same way it blinks for a real charge, so the colour waits on voltage.
+ * After 15 min on the case, if the cell is not 12 mV above the sample
+ * taken at the start of the window, red stays on. A later rise of 12 mV
+ * returns to the green flash and opens a new window.
  *
- * BLE connected:
- *   - No status LEDs — optical emitters are PPG-only (red/IR while PPG CCC is on).
+ * Infrared stays off. A live pulse stream owns the emitters.
  */
-
-#include "battery_led_indicator.h"
-#include "ppg.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+
+#include "battery_led_indicator.h"
+#include "ppg.h"
+#include "tgm_service.h"
 
 LOG_MODULE_REGISTER(battery_led, CONFIG_APP_LOG_LEVEL);
 
@@ -35,11 +37,16 @@ LOG_MODULE_REGISTER(battery_led, CONFIG_APP_LOG_LEVEL);
 /** Hold: rare pulse so the LED does not discharge a hold-range cell. */
 #define LED_HOLD_ON_MS 200U
 #define LED_HOLD_OFF_MS 10000U
+/** On-case window before a flat or falling cell is called not charging. */
+#define FILL_WINDOW_MS (15 * 60 * 1000)
+/** Rise across that window that counts as current entering the cell. */
+#define FILL_RISE_MV 12
 
 enum indicator_pattern {
 	INDICATOR_NONE = 0,
 	INDICATOR_FLASH_GREEN,
 	INDICATOR_HOLD_GREEN,
+	INDICATOR_FAULT_RED,
 };
 
 static struct k_work_delayable flash_work;
@@ -48,6 +55,10 @@ static bool flash_phase_on;
 static bool hold_latched;
 static uint32_t led_gen;
 static uint32_t flash_gen;
+static bool fill_tracking;
+static bool fill_fault;
+static int32_t fill_base_mv;
+static int64_t fill_base_ms;
 
 static uint32_t pattern_on_ms(enum indicator_pattern pattern)
 {
@@ -83,6 +94,48 @@ static bool in_hold_range(uint8_t battery_pct, int32_t battery_mv)
 	return hold_latched;
 }
 
+static void fill_reset(void)
+{
+	fill_tracking = false;
+	fill_fault = false;
+}
+
+/*
+ * The status pin blinks whether or not current is entering the cell.
+ * Compare the cell voltage with the sample from the start of a 15 min
+ * on-case window. A miss of 12 mV latches the red fault until a later
+ * sample clears it.
+ */
+static void fill_note(int32_t battery_mv)
+{
+	const int64_t now = k_uptime_get();
+
+	if (battery_mv <= 0) {
+		return;
+	}
+
+	if (!fill_tracking) {
+		fill_tracking = true;
+		fill_base_mv = battery_mv;
+		fill_base_ms = now;
+		fill_fault = false;
+		return;
+	}
+
+	if ((now - fill_base_ms) < FILL_WINDOW_MS) {
+		return;
+	}
+
+	if (battery_mv >= (fill_base_mv + FILL_RISE_MV)) {
+		fill_base_mv = battery_mv;
+		fill_base_ms = now;
+		fill_fault = false;
+		return;
+	}
+
+	fill_fault = true;
+}
+
 static void stop_flash(void)
 {
 	(void)k_work_cancel_delayable(&flash_work);
@@ -93,11 +146,22 @@ static void apply_dark(void)
 {
 	stop_flash();
 	hold_latched = false;
+	fill_reset();
 	(void)ppg_ensure_awake();
 	(void)ppg_set_led_pa(PPG_LED_GREEN, 0U);
 	(void)ppg_set_led_pa(PPG_LED_RED, 0U);
 	(void)ppg_set_led_pa(PPG_LED_IR, 0U);
 	(void)ppg_stop_streaming("battery-dark");
+}
+
+static void apply_solid_red(void)
+{
+	stop_flash();
+	active_pattern = INDICATOR_FAULT_RED;
+	(void)ppg_ensure_awake_status_leds();
+	(void)ppg_set_led_pa(PPG_LED_GREEN, 0U);
+	(void)ppg_set_led_pa(PPG_LED_IR, 0U);
+	(void)ppg_set_led_pa(PPG_LED_RED, LED_PA_STATUS);
 }
 
 static void flash_work_handler(struct k_work *work)
@@ -181,7 +245,8 @@ void battery_led_indicator_apply(bool on_dock, bool worn, uint8_t battery_pct,
 	}
 
 	if (!on_dock) {
-		if (active_pattern != INDICATOR_NONE || hold_latched) {
+		if (active_pattern != INDICATOR_NONE || hold_latched ||
+		    fill_tracking) {
 			led_gen++;
 			apply_dark();
 		}
@@ -191,24 +256,48 @@ void battery_led_indicator_apply(bool on_dock, bool worn, uint8_t battery_pct,
 		return;
 	}
 
-	want = in_hold_range(battery_pct, battery_mv) ? INDICATOR_HOLD_GREEN
-						      : INDICATOR_FLASH_GREEN;
+	if (in_hold_range(battery_pct, battery_mv)) {
+		fill_reset();
+		want = INDICATOR_HOLD_GREEN;
+	} else {
+		fill_note(battery_mv);
+		want = fill_fault ? INDICATOR_FAULT_RED : INDICATOR_FLASH_GREEN;
+	}
 
 	/*
 	 * Same pattern: leave the delayable work alone so a 10 s hold-off
-	 * is not restarted every status tick.
+	 * is not restarted every status tick. The caller clears red before
+	 * this runs, so a held red fault has to be written again.
 	 */
 	if (active_pattern == want) {
+		if (want == INDICATOR_FAULT_RED) {
+			(void)ppg_ensure_awake_status_leds();
+			(void)ppg_set_led_pa(PPG_LED_GREEN, 0U);
+			(void)ppg_set_led_pa(PPG_LED_IR, 0U);
+			(void)ppg_set_led_pa(PPG_LED_RED, LED_PA_STATUS);
+		}
 		return;
 	}
 
 	led_gen++;
-	(void)ppg_ensure_awake_status_leds();
-	(void)ppg_set_led_pa(PPG_LED_RED, 0U);
-	(void)ppg_set_led_pa(PPG_LED_IR, 0U);
-	start_pattern(want);
+	if (want == INDICATOR_FAULT_RED) {
+		apply_solid_red();
+	} else {
+		(void)ppg_ensure_awake_status_leds();
+		(void)ppg_set_led_pa(PPG_LED_RED, 0U);
+		(void)ppg_set_led_pa(PPG_LED_IR, 0U);
+		start_pattern(want);
+	}
 
-	LOG_INF("Battery LED: on_dock=%d charge=%d worn=%d mv=%dmV pct=%u -> pattern %d",
+	LOG_INF("Battery LED: on_dock=%d charge=%d worn=%d mv=%dmV pct=%u base=%dmV -> pattern %d",
 		on_dock, charge_active, worn, battery_mv, battery_pct,
-		active_pattern);
+		fill_base_mv, active_pattern);
+	if (want == INDICATOR_FAULT_RED) {
+		tgm_service_fw_log_printf("fw: bat led red mv=%d base=%d",
+					  battery_mv, fill_base_mv);
+	} else if (want == INDICATOR_HOLD_GREEN) {
+		tgm_service_fw_log_printf("fw: bat led hold mv=%d", battery_mv);
+	} else {
+		tgm_service_fw_log_printf("fw: bat led flash mv=%d", battery_mv);
+	}
 }
