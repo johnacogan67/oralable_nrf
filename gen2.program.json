@@ -1,0 +1,128 @@
+{
+  "schema_version": "1.0.0",
+  "program": "oralable-gen2-nrf54l15",
+  "status": "evidence_gated_non_release",
+  "release_eligible": true,
+  "release_blocker": "The release flag is on for the 2.0.6 candidate. This is not a product release, a kit release, or an iOS production-compatibility claim.",
+  "release_candidate_authorization": {
+    "authorized": true,
+    "date": "2026-11-16",
+    "authorizer": "John",
+    "tgm_contract_check": "pass",
+    "gen1_workspace_check": "pass",
+    "scope": "Separate release-candidate process. release_eligible is true for the 2.0.6 candidate. Kits stay gated. The iOS app is not production compatible."
+  },
+  "source_of_truth": "docs/GEN2_PROGRAM_GATE.md",
+  "tracks": {
+    "bench_advertiser": {
+      "firmware_track": "gen2_bringup",
+      "application": "bringup_ble",
+      "purpose": "Bench-only board power, SWD/RTT, advertising, and connection observation.",
+      "release_eligible": false
+    },
+    "patient_candidate": {
+      "firmware_track": "gen2_patient_candidate",
+      "application": "app",
+      "purpose": "Non-release port used only to collect compatibility evidence after prerequisite gates pass.",
+      "release_eligible": false
+    }
+  },
+  "required_gates": [
+    {
+      "id": "G2-P2",
+      "name": "BLE identity and GATT contract parity",
+      "status": "passed",
+      "evidence": {
+        "location": "outputs/gen2-reviewer-2026-11-15/Oralable__61_.csv",
+        "sha256": "5caf5bd66371eb5354fa7bb51e1c61f89c769fb61c9cadcd44c88b87ffafefad",
+        "date": "2026-11-15",
+        "hardware_id": "pcb00003_gen2-6C06CBA8584D4300",
+        "firmware": "2.0.6-gen2-nrfconnect",
+        "source_revision": "42a4605aebe43538844ef122a23d075f05471e80",
+        "tester": "John",
+        "reviewer": "John",
+        "result": "Connect, inventory of 001-00D plus SMP, reads of 005, 006, 004, 00C, and 00D, notifications on 00A, 009, 002, and 001, disconnect, reconnect, and a second 006 read of 2.0.6-gen2-nrfconnect. Cell 4224 mV, on the case, taper."
+      },
+      "evidence_required": [
+        "Device identity and firmware-version read from a physical candidate",
+        "TGM service and required characteristic inventory against tgm_gatt_v1",
+        "Connect, disconnect, reconnect, and notification-subscription logs"
+      ]
+    },
+    {
+      "id": "G2-P3",
+      "name": "PPG and accelerometer stream parity",
+      "status": "passed",
+      "evidence": {
+        "location": "outputs/gen2-reviewer-2026-11-15/Oralable__62_.csv",
+        "sha256": "31debe59c30390b225951d2032ffae3d48868dafeebef45f82e552430f542c4e",
+        "manifest": "outputs/gen2-reviewer-2026-11-15/gen2-p3-2.0.6.json",
+        "date": "2026-11-15",
+        "hardware_id": "pcb00003_gen2-6C06CBA8584D4300",
+        "firmware": "2.0.6-gen2-nrfconnect",
+        "source_revision": "42a4605aebe43538844ef122a23d075f05471e80",
+        "firmware_image_sha256": "395031a33c0317682268794c10a21b830720c0df763a08f9a75b8c6bd9ea3a88",
+        "tester": "John",
+        "reviewer": "John",
+        "result": "Seated capture, 11 min 11 s PPG and 11 min 15 s accelerometer, both 50 Hz, zero frame-counter gaps, ppg_err and acc_err stayed 0. Offline check passed at a 600 s minimum. Capture integrity is not a release."
+      },
+      "evidence_required": [
+        "Time-stamped raw captures demonstrating expected packet format and rate",
+        "Parser validation against the shared BLE contract",
+        "Drop and error accounting for the captured PPG and accelerometer streams"
+      ]
+    },
+    {
+      "id": "G2-P4",
+      "name": "Battery, charging, dock state, and LED behavior",
+      "status": "passed",
+      "evidence": {
+        "location": "outputs/gen2-reviewer-2026-11-15/Oralable__63_.csv",
+        "sha256": "67058c7ce006b4c8dec370bf64fa31e89b51b8e8ab181f31b2e9866a976475af",
+        "note": "outputs/gen2-reviewer-2026-11-15/G2-P4-2026-11-15.md",
+        "note_sha256": "6e35305c0d594d4e86323525483b65b7abaa8a6b73bc576592d973d2f100030b",
+        "date": "2026-11-15",
+        "hardware_id": "pcb00003_gen2-6C06CBA8584D4300",
+        "firmware": "2.0.6-gen2-nrfconnect",
+        "source_revision": "42a4605aebe43538844ef122a23d075f05471e80",
+        "tester": "John",
+        "reviewer": "John",
+        "result": "On 2.0.6 the cell sat at 4213–4224 mV. Off the case the pin was idle. Back on the case the log read fw: bat led hold mv=4213. The 3564-to-4213 mV rise was on the earlier image. The 1.875, 0.80, and 0.20 mA figures were not measured. The 3900 mV line was not retested."
+      },
+      "evidence_required": [
+        "LP270829-specific voltage/gauge and charging characterization",
+        "CHRSTS, BATEN, BATVOL, placement, and LED transition captures",
+        "Evidence that no Gen1 battery thresholds were assumed for Gen2"
+      ]
+    },
+    {
+      "id": "G2-P6",
+      "name": "iOS compatibility and monitored hardware soak",
+      "status": "passed",
+      "evidence": {
+        "location": "outputs/gen2-reviewer-2026-11-16/ios_gen2_before_gate_log_161126.txt",
+        "sha256": "1d289ed24259409aecf54cee4194c438c1f1288cce211ee271889076f23a60aa",
+        "note": "outputs/gen2-reviewer-2026-11-16/G2-P6-2026-11-16.md",
+        "note_sha256": "c679c25aeb77cd74c57330068a7f29321580775b602d61f61466e634240fd2ea",
+        "date": "2026-11-16",
+        "hardware_id": "pcb00003_gen2-6C06CBA8584D4300",
+        "firmware": "2.0.6-gen2-nrfconnect",
+        "source_revision": "42a4605aebe43538844ef122a23d075f05471e80",
+        "tester": "John",
+        "reviewer": "John",
+        "result": "The phone found Oralable, read 2.0.6-gen2-nrfconnect twice, and streamed PPG at 50 Hz with accelerometer and temperature notifies. The app closed the link and the recording resumed after a scan. Battery percent is the old 3.61-4.35 V scale: 59% at 4048 mV, which is 83% on the Gen 2 gauge. Oxygen estimates were mostly under 90 and flagged. Heart rate in the log is 47 bpm. John states the session used the MAM Diagnostics build, app 4.3.3 (build 5). The log text does not print the phone model or the iOS version. This is not a production-compatibility claim."
+      },
+      "evidence_required": [
+        "Physical-device iOS pairing, discovery, version, subscription, data, and reconnect evidence",
+        "Compatibility results for the signed candidate iOS build and documented limitations",
+        "Defined-duration monitored soak with disconnect, data-loss, battery, and recovery observations"
+      ]
+    }
+  ],
+  "promotion_requirements": [
+    "Every required gate is passed with immutable evidence references and reviewer sign-off.",
+    "The shared TGM GATT contract and cross-repository compatibility checks pass at the candidate revisions.",
+    "The Gen1 release path remains independently green.",
+    "A product owner explicitly authorizes a separate release-candidate process."
+  ]
+}
