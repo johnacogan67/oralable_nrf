@@ -1,0 +1,31 @@
+# Massive vendored SDK trees
+zephyr/
+nrf/
+modules/
+nrfxlib/
+bootloader/
+tools/
+test/
+
+# Build/generated outputs
+build/
+build_*/
+build*/
+.west/
+.cache/
+artifacts/
+ota_release/
+child_image/
+
+# Firmware artifacts/logs
+*.hex
+*.bin
+*.elf
+*.map
+*.lst
+*.zip
+*.log
+log.log
+
+# OS noise
+.DS_Store

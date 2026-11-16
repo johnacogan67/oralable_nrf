@@ -4,11 +4,13 @@ Firmware for the Oralable MAM (TGM service, pcb00003). **Docs:** [docs/README.md
 
 | Item | Value |
 |------|--------|
-| Board | `pcb00003/nrf52832` (Gen1) · `pcb00003_gen2` stub (Gen2) |
-| FW version | **1.0.84** (`app/VERSION`) · pair with iOS app **4.3.3** build **5** · [VERSION_ALIGNMENT](../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) |
+| Board | `pcb00003/nrf52832` (Gen1 release path) · `pcb00003_gen2/nrf54l15/cpuapp` (Gen2 evidence-gated program) |
+| FW version | **1.0.85** (`app/VERSION`) · pair with iOS app **4.3.3** build **5** · [VERSION_ALIGNMENT](../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md) |
 | Flash + RTT | `./scripts/flash_and_rtt.sh` → `build_pcb00003/merged.hex` or data-room hex |
 | OTA | `./scripts/update_firmware.sh --ota` or [OTA_DEVICE_MANAGER.md](docs/OTA_DEVICE_MANAGER.md) |
-| Pilot flash | [FIRMWARE_1.0.84_FLASH.md](../cursor_oralable/docs/data_room/firmware/FIRMWARE_1.0.84_FLASH.md) · rollback [FIRMWARE_ROLLBACK.md](../cursor_oralable/docs/data_room/firmware/FIRMWARE_ROLLBACK.md) |
+| Pilot flash | [FIRMWARE_1.0.85_FLASH.md](../cursor_oralable/docs/data_room/firmware/FIRMWARE_1.0.85_FLASH.md) · rollback [FIRMWARE_ROLLBACK.md](../cursor_oralable/docs/data_room/firmware/FIRMWARE_ROLLBACK.md) |
+
+**Build entry points:** [CLEAN_CHECKOUT.md](docs/CLEAN_CHECKOUT.md) is authoritative. Gen1 release firmware builds only `app/` with the repository-pinned NCS v2.7.0 workspace. Gen2 has separate non-release `app/` candidate and `bringup_ble/` bench paths, each requiring an explicit NCS v2.9.3 workspace and matching toolchain. See [GEN2_PROGRAM_GATE.md](docs/GEN2_PROGRAM_GATE.md); a build is not hardware evidence or a release claim.
 
 # nRF Connect SDK example application
 
@@ -37,10 +39,10 @@ cd tgm_firmware
 west update
 ```
 
-### Building and running
+### Building and running (Gen1)
 
 The easiest way to build and run the example is using the nRF Connect extension in VSCode.
-When freshly installing this repo, you will need to 'Add existing application' and select the tgm_firmware/app directory.
+When freshly installing this repo, initialize dependencies with `./scripts/bootstrap_gen1_deps.sh`, then select the `app/` directory. The reproducible CLI build is `./scripts/build_firmware.sh --pristine`; it applies the required `app/slot_fit.conf` signed-image size profile. Do not build the repository root as an application.
 Next, add a build configuration, selecting the board you want to build for.
 Check the boards directory for a selection of supported boards
 

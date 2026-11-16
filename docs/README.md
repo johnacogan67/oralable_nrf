@@ -25,11 +25,12 @@ Canonical docs for **oralable_nrf** (pcb00003, nRF52832 → nRF54L15 roadmap).
 | [PRODUCT_ROADMAP.md](../../cursor_oralable/docs/PRODUCT_ROADMAP.md) | Phase 0 / Phase 1+ / Gen2 features + Hardware ↔ BOM map |
 | [IP_NORTH_STAR.md](../../cursor_oralable/docs/IP_NORTH_STAR.md) | Stage A wearable → Stage B medical; new US patent |
 | [COST_AND_TIMELINE.md](../../cursor_oralable/docs/data_room/COST_AND_TIMELINE.md) | Planning cost ranges + timeline |
-| [GEN2_GIT_WORKFLOW.md](./GEN2_GIT_WORKFLOW.md) | Branches, tags, VERSION, no-fork policy |
+| [GEN2_PROGRAM_GATE.md](./GEN2_PROGRAM_GATE.md) | Canonical non-release Gen2 gates, evidence requirements, and promotion policy |
+| [GEN2_GIT_WORKFLOW.md](./GEN2_GIT_WORKFLOW.md) | Gen2 source-control, evidence-snapshot, and no-fork policy |
 | [GEN1_GEN2_TRACKING.md](../../cursor_oralable/docs/GEN1_GEN2_TRACKING.md) | Living timeline + G2-P0…P6 checklist |
 | [GEN1_GEN2_MIGRATION.md](../../cursor_oralable/docs/GEN1_GEN2_MIGRATION.md) | Capabilities, BOM delta, firmware map |
 | [boards/byteexplain/pcb00003/README.md](../boards/byteexplain/pcb00003/README.md) | Gen1 shipping board (nRF52832) |
-| [boards/byteexplain/pcb00003_gen2/README.md](../boards/byteexplain/pcb00003_gen2/README.md) | Gen2 board stub (nRF54L15 / REV11) |
+| [boards/byteexplain/pcb00003_gen2/README.md](../boards/byteexplain/pcb00003_gen2/README.md) | Gen2 evidence-gated board port (nRF54L15 / REV11) |
 
 ## Firmware operations
 

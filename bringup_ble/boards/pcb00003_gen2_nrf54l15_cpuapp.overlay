@@ -1,0 +1,18 @@
+/*
+ * Bench advertiser. Leave the sensor bus and the battery ADC alone.
+ * BATEN stays in the board file (P1.04) and is driven from main.
+ */
+
+/ {
+	zephyr,user {
+		/delete-property/ io-channels;
+	};
+};
+
+&i2c22 {
+	status = "disabled";
+};
+
+&adc {
+	status = "disabled";
+};

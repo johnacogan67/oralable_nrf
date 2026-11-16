@@ -16,4 +16,4 @@ Hardware design ported from NEU/TGM sensor to Altium; board files based on nRF52
 
 **Documentation:** [docs/README.md](../../docs/README.md) · [ORALABLE_MARKET_LANDSCAPE.md](../../docs/ORALABLE_MARKET_LANDSCAPE.md) · [HARDWARE_ROADMAP_nRF54L15.md](../../docs/HARDWARE_ROADMAP_nRF54L15.md)
 
-**Flash:** `../../scripts/flash_and_rtt.sh` → `build_pcb00003/merged.hex` (first time) · OTA via [OTA_DEVICE_MANAGER.md](../../docs/OTA_DEVICE_MANAGER.md)
+**Flash (Gen 1 archive):** `../../scripts/flash_and_rtt.sh` → `build_pcb00003/merged.hex`. Gen2 is intentionally excluded from that helper; use the evidence-gated candidate/bench controls in [GEN2_PROGRAM_GATE.md](../../docs/GEN2_PROGRAM_GATE.md). OTA via [OTA_DEVICE_MANAGER.md](../../docs/OTA_DEVICE_MANAGER.md) remains a Gen1 archive path. Gen1 feature work stopped 14 Oct 2026.

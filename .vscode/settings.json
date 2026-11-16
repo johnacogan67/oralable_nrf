@@ -1,9 +1,11 @@
 {
   "cmake.configureOnOpen": false,
-  "C_Cpp.default.compileCommands": "${workspaceFolder}/build_pcb00003_test/compile_commands.json",
-  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "cmake.ignoreCMakeListsMissing": true,
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.errorSquiggles": "disabled",
   "clangd.arguments": [
     "--compile-commands-dir=${workspaceFolder}/build_pcb00003_test",
-    "--background-index"
+    "--background-index",
+    "--header-insertion=never"
   ]
 }

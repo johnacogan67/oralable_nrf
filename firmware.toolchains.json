@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.1.0",
+  "repository": "oralable_nrf",
+  "tracks": {
+    "gen1_release": {
+      "status": "release_candidate",
+      "application": "app",
+      "board": "pcb00003/nrf52832",
+      "build_system": "west_sysbuild",
+      "west_manifest": "west.yml",
+      "ncs": {
+        "sdk_nrf_revision": "v2.7.0",
+        "zephyr_revision": "v3.6.99-ncs2"
+      },
+      "required_artifacts": [
+        "merged.hex",
+        "dfu_application.zip",
+        "app/zephyr/zephyr.signed.bin"
+      ],
+      "required_config": {
+        "CONFIG_DEBUG_OPTIMIZATIONS": "n",
+        "CONFIG_SIZE_OPTIMIZATIONS": "y"
+      },
+      "release_config": "app/slot_fit.conf"
+    },
+    "gen2_bringup": {
+      "status": "evidence_gated_non_release",
+      "application": "bringup_ble",
+      "board": "pcb00003_gen2/nrf54l15/cpuapp",
+      "build_system": "west",
+      "ncs": {
+        "sdk_nrf_revision": "v2.9.3",
+        "sdk_nrf_commit": "09eb26eab8d23b1589bd44ac2a896276bd3ff353",
+        "zephyr_revision": "v3.7.99-ncs2-3"
+      },
+      "toolchain": {
+        "ncs_toolchain_id": "b8efef2ad5"
+      },
+      "constraints": [
+        "Use a separately initialized NCS v2.9.3 workspace and explicit matching toolchain.",
+        "Builds are bench-only and do not establish Oralable GATT, sensor, or product compatibility.",
+        "No flashing, OTA packaging, artifact promotion, or release claim is authorized by this target."
+      ]
+    },
+    "gen2_patient_candidate": {
+      "status": "evidence_gated_non_release",
+      "application": "app",
+      "board": "pcb00003_gen2/nrf54l15/cpuapp",
+      "build_system": "west_sysbuild",
+      "ncs": {
+        "sdk_nrf_revision": "v2.9.3",
+        "sdk_nrf_commit": "09eb26eab8d23b1589bd44ac2a896276bd3ff353",
+        "zephyr_revision": "v3.7.99-ncs2-3"
+      },
+      "toolchain": {
+        "ncs_toolchain_id": "b8efef2ad5"
+      },
+      "constraints": [
+        "Use a separately initialized NCS v2.9.3 workspace and explicit matching toolchain.",
+        "Builds are non-release candidates used only to collect approved evidence after prerequisite gates are planned.",
+        "No flashing, OTA packaging, artifact promotion, or release claim is authorized by this target."
+      ]
+    }
+  }
+}

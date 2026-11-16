@@ -124,6 +124,7 @@ PPG stays on **MAXM86161** (integrated module) rather than discrete **MAX86171/8
 
 - Kaga FEI ES4L15BA1 datasheet V0.1 (2025-12-22)
 - ADI MAXM86161 datasheet Rev 1 (4/23), ordering MAXM86161EFD+
+- [nRF54L15 DK](../../cursor_oralable/docs/data_room/bookmarks/NRF54L15_DK.md) — order code **nRF54L15-DK**, board PCA10156. Same SoC. QFN48 on the kit, CSP in the Kaga module. NCS 2.7 in this repo only has the preview board `nrf54l15pdk`.
 - [Nordic nRF54L15 product specification](https://docs.nordicsemi.com/)
 - [IDO IDR01 + nRF54L15 (Nordic news)](https://www.nordicsemi.com/Nordic-news/2025/10/IDOs-IDR01-smart-ring-integrates-Nordics-nRF54L15-SoC)
 - [Appendix A: Nordic wearables](./ORALABLE_MARKET_LANDSCAPE.md#appendix-a-nordic-wearables-comparison)

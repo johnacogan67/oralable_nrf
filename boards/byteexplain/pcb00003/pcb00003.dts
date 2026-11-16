@@ -28,6 +28,7 @@
 
 	zephyr,user {
 		baten-gpios = <&gpio0 10 GPIO_ACTIVE_HIGH>;
+		sens-en-gpios = <&gpio0 8 GPIO_ACTIVE_HIGH>;
 		chrsts-gpios = <&gpio0 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 		io-channels = <&adc 0>;
 	};

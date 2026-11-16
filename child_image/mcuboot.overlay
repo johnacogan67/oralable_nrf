@@ -1,0 +1,20 @@
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/*
+ * Assert BATEN (P0.10) during MCUboot itself.
+ *
+ * The Oralable power tree uses P0.10 as the boost-regulator latch input.
+ * If this pin is left floating/low while the CPU is in MCUboot, the boost
+ * can decay before the application reaches its own SYS_INIT hook.
+ *
+ * A gpio-hog drives the pin high as soon as gpio0 is initialized in MCUboot,
+ * guaranteeing the regulator stays latched through image validation / swap.
+ */
+&gpio0 {
+    baten_hog: baten_hog {
+        gpio-hog;
+        gpios = <10 GPIO_ACTIVE_HIGH>;
+        output-high;
+        line-name = "oralable_baten_hog";
+    };
+};

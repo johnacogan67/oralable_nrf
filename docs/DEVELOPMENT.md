@@ -6,6 +6,8 @@ Keeps `oralable_nrf` and `oralable_swift` synchronized. **Doc index:** [README.m
 
 **System architecture & validation matrix:** [cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md](../../cursor_oralable/docs/ORALABLE_SYSTEM_ARCHITECTURE.md) (truth registry, §3 status, GATT detail). **This file** covers tandem workflow, smoke checklist, and compatibility matrix only.
 
+**Reproducible checkout/build:** [CLEAN_CHECKOUT.md](./CLEAN_CHECKOUT.md). Gen1 release validation is `app/` on `pcb00003/nrf52832` using the repository-pinned NCS v2.7.0 west workspace. Gen2 is a separate NCS v2.9.3 candidate/bench program: its helpers require explicit `--ncs-root` and `--toolchain` arguments, do not program hardware, and do not establish compatibility or release readiness. See [GEN2_PROGRAM_GATE.md](./GEN2_PROGRAM_GATE.md).
+
 ```mermaid
 flowchart LR
   FW[oralable_nrf change] --> Build[build_firmware flash]
@@ -59,7 +61,7 @@ Red squiggles on Zephyr includes (`app/drivers/…`, `uint8_t`, `LOG_*`) are usu
 After a fresh clone or SDK bump, regenerate then reload the window:
 
 ```bash
-west build -b pcb00003/nrf52832 app -d build_pcb00003_test
+./scripts/build_firmware.sh --pristine --build-dir build_pcb00003_test
 # If you use another -d dir, update .clangd CompilationDatabase + the symlink
 ```
 
@@ -87,7 +89,7 @@ Command Palette → **Developer: Reload Window** (or restart clangd) so diagnost
 
 ---
 
-## Manual smoke checklist (TGM / firmware ≥ 1.0.63; **Gen1 target 1.0.84**)
+## Manual smoke checklist (TGM / firmware ≥ 1.0.63; **Gen1 target 1.0.85**)
 
 iOS `FirmwareGate` minimum: **1.0.63** · recommend **1.0.84**. **Ed/Pedro Phase 0 kits:** flash **1.0.84**. App **4.3.3** (build **5**). Record actual `3A0FF006` after flash. See [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md).
 
@@ -137,20 +139,22 @@ Worn detection **1.0.82+:** IR pulse (AC/DC). Die temperature is logged only. **
 
 **1.0.82:** Automatic `worn` follows **IR pulse** (AC/DC for ≥2.5 s; 20 s hold through a clench), not die temperature. MAM still streams raw red/green/IR + ACC. HR/SpO₂ stay on the phone/Mac. Mode 3 still forces worn. On-dock still `worn=0`.
 
-**1.0.84:** PPG/ACC GATT notifies are high priority; FwLog is low. Stall recover drops a zombie link when **samples** go silent **or** when no PPG notify succeeds for ~4 s (AFE can still pulse with no central). STAT charging/taper owns the LEDs in that idle case: zero red/IR, green, clear leftover mode 3, restart advertising. A live Protocol A session keeps sensing LEDs because PPG notifies succeed. Mac Protocol A does **not** subscribe FwLog unless `--fw-log`. **Desk/bench abandon:** if `worn=0`, PPG is still sensing, and ACC shows no significant motion for **10 minutes**, force-recover and re-advertise. Overnight on-temple (`worn=1`) is not dropped for stillness.
+**1.0.84:** PPG/ACC GATT notifies are high priority; FwLog is low. Stall recover drops a zombie link when **samples** go silent **or** when no PPG notify succeeds for ~4 s (AFE can still pulse with no central). STAT charging/taper owns the pad in that idle case: zero red/IR, green, clear leftover mode 3, restart advertising. A live Protocol A session keeps sensing LEDs because PPG notifies succeed. Mac Protocol A does **not** subscribe FwLog unless `--fw-log`. **Desk/bench abandon:** if `worn=0`, PPG is still sensing, and ACC shows no significant motion for **10 minutes**, force-recover and re-advertise. Overnight on-temple (`worn=1`) is not dropped for stillness.
+
+**This tree (unreleased vs archived 1.0.84 hex):** on-pad green is **flash** below hold (~4.10 V / 83%) and a **rare pulse** in hold. STAT taper alone is not full. Continuous solid green is the archived hex only. These lines are for the Gen1 **CG-320B**. The Gen2 cell (**LP260820**) needs its own gauge and hold voltages.
 
 | Context | Condition | Target LED | Notes |
 |---------|-----------|------------|--------|
 | **BLE connected** | Any dock / worn | **Off** (no status) | Red/IR while PPG CCC is on |
-| **On Oralable case, no BLE** | STAT blinking | **Flash green** | `charge_active=1` |
-| **On Oralable case, no BLE** | STAT taper / hold | **Solid green** | Taper / hold — not 4.2 V full |
+| **On Oralable case, no BLE** | Below hold (~4.10 V / 83%) | **Flash green** | Charging or early STAT taper. Gen1 CG-320B only |
+| **On Oralable case, no BLE** | Hold (≥4.10 V / 83%; exit 4.05 V / 75%) | **Rare green pulse** (~200 ms / 10 s) | Not a continuous LED — saves the cell after the charger stops. Gen2 LP260820 needs a new pair |
 | **Off case, no BLE** | Any SOC | **Off** | No status green off the pad |
 
 **SOC clamp:** `BATTERY_LED_FULL_THRESHOLD_PCT` = **80** (`battery_led_indicator.h`) — used to cap inflated on-pad %; not an off-pad LED threshold.
 
 **iOS mirror:** `DeviceStatusLEDRepresentation` in OralableCore — rendered on **VitalsDeviceStatusCard** (app **4.3.3+**).
 
-**Percent mapping (FW ≥ 1.0.68):** CG-320B **user gauge** — 4.35 V = 100%, **3.61 V = remapped 0%** (operational empty; old chemistry curve used 3.0 V = 0%). Status byte 3 uses this map. Raw mV still on `3A0FF004`.
+**Percent mapping (this tree):** Gen1 CG-320B **user gauge** — **4.20 V = 100%** (charger float), **3.61 V = remapped 0%**. A rested full cell on this case reads about 4.15 V. **4.35 V** stays the ADC divider peak and the chemistry log scale, not the user 100%. Status byte 3 uses the user map. Raw mV still on `3A0FF004`. **Gen2 (LP260820) needs this map adjusted**; do not copy the CG-320B numbers onto that cell.
 
 **Legacy (FW ≤ 1.0.62):** green flash on charger, red off case — deprecated.
 
@@ -158,8 +162,9 @@ Worn detection **1.0.82+:** IR pulse (AC/DC). Die temperature is logged only. **
 
 | Observation | Likely meaning |
 |-------------|----------------|
-| Flash **green** on Oralable case (no BLE) | STAT blinking — charging (`charge_active=1`) |
-| **Solid green** on Oralable case (no BLE) | STAT taper / hold (`charge_active=0`; not 4.2 V full) |
+| Flash **green** on Oralable case (no BLE) | Still below hold — charging or early STAT taper |
+| Brief **green pulse** ~every 10 s on case (no BLE) | Hold range (≥ ~4.10 V / 83% on the CG-320B). LTC4124 may be in taper or topping up |
+| Continuous solid green on case | Archived **1.0.84** hex only — this tree uses the rare pulse |
 | No status LED off case (no BLE) | Expected — green is pad-only |
 | No status LED while nRF Connect / app is linked | Expected — optics are PPG-only |
 | Red/IR while PPG CCC is on | PPG sensing drive, not a status colour |
@@ -224,7 +229,7 @@ Worn detection **1.0.82+:** IR pulse (AC/DC). Die temperature is logged only. **
 2. nRF Connect: read `3A0FF006` + `3A0FF009`, enable **battery (`004`)** + **status (`009`)** notifies for a 2 min soak off case, then on Oralable case.
 3. Judge SOC and LED behavior **off the Oralable case** after a case soak (not only while on case).
 4. **FW ≥ 1.0.70 CHRSTS (LTC4124 STAT) — not “broken”:** STAT **blinks while charging** and goes **steady assert** when charge current tapers (“almost full”, not necessarily 4.2 V). Firmware uses `CONFIG_CHRSTS_STAT_ACTIVITY` (edge count → `charge_active`, steady assert → on-pad taper, steady inactive → undock). Manual modes 1/2/3 still override auto. Prefer **Oralable case + USB-C** only (not MagSafe/Qi).
-5. nRF Connect / RTT gate for 1.0.84: after Dual A (mode 3), **disconnect** then seat on Oralable case with no central → green returns (STAT pad wins). A leftover zombie CCC on the pad must also go green and advertise (~4 s). While PPG notifies are succeeding (live session), pad-wins must **not** clear worn. Status `on_dock=1` + `charge_active=1` (flash) or `charge_active=0` (solid taper). Connect → LED off. Lift off → LED off.
+5. nRF Connect / RTT gate for 1.0.84: after Dual A (mode 3), **disconnect** then seat on Oralable case with no central → green returns (STAT pad wins). A leftover zombie CCC on the pad must also go green and advertise (~4 s). While PPG notifies are succeeding (live session), pad-wins must **not** clear worn. Status `on_dock=1`. LED: flash while mV &lt; ~4.20 V; rare pulse in hold. `charge_active` still follows STAT blink/taper and is **not** the LED. Connect → LED off. Lift off → LED off.
 6. If **Oralable** missing in scan after disconnect: wait for connection **recycle**; `ble.c` restarts advertising from `.recycled` via `k_work` (not from the disconnect callback). Soft `ble_ensure_advertising()` only if adv is off.
 7. **1.0.82 stream + worn (phone Bluetooth off):** nRF Connect → read `3A0FF006` (**1.0.82**) → enable CCC battery → status → FwLog → PPG → ACC. Above 5%: `fw: ppg_start ok` with `worn=0` until IR pulse. Temple: `fw: ir_pulse worn=1` after ~2.5 s. Below 5%: `fw: floor sensors off` / `ppg_start skip … floor=1`; BLE stays up.
 8. **Stuck solid red + not advertising after Mac Protocol A:** Seat on Oralable case. **1.0.84+** should go green and advertise within ~4 s (pad wins idle link). If still red and invisible, SWD flash **1.0.84**. Phone Bluetooth off before Protocol A. Mac: no `--fw-log`.
@@ -249,6 +254,7 @@ Record known-good pairs after `tandem_validate.sh` + manual smoke. **Live valida
 
 | Date (UTC) | Firmware | FW commit | iOS commit | FW version | Validation | Manual smoke | Result | Notes |
 |---|---|---|---|---|---|---|---|---|
+| 2026-10-05 | oralable_nrf | (workspace) | — | local size-opt build (tree **1.0.86**, not kit) | SWD via nRF5340-DK S/N 1050090445 + Tag-Connect | Phone **Oralable** + green on case | **PASS** | Archived **1.0.85** merged hex does not boot (signed **0x39077**, limit **0x39000**). Fitted hex `build_pcb00003_fit/merged.hex` (**0x31e03**). No chip erase. |
 | 2026-05-28 | oralable_nrf | c617f81 | 547c2b7 | (pre-1.0.36 gate) | tandem_validate.sh | Build checks | PASS | Baseline battery+BLE |
 | 2026-06-07 | oralable_nrf | (workspace) | (workspace) | **1.0.36-nrfconnect** | tandem + nRF Connect CSV | TGM GATT, worn gate | PASS | nRF-aligned CCC order |
 | 2026-06-07 | oralable_nrf | `4210e97` | `6097a0a` | **1.0.37-nrfconnect** | build + flash smoke | 00A/B/C diagnostics, connect probe | PASS | iOS Developer dump + fw log |
@@ -267,4 +273,4 @@ cd ~/work/oralable_nrf && git rev-parse --short HEAD
 cd ~/work/oralable_swift && git rev-parse --short HEAD
 ```
 
-*Last updated: 30 Aug 2026 (Gen1 target **1.0.84**; iOS **4.3.3** build **5** — [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md))*
+*Last updated: 5 Oct 2026 (one MAM boots — [VERSION_ALIGNMENT.md](../../cursor_oralable/docs/data_room/VERSION_ALIGNMENT.md))*

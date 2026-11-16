@@ -1,0 +1,10 @@
+/*
+ * REV10 overlay: SAADC 12-bit, 1/6 gain, 0.6V internal ref for CG-320B
+ * Voltage divider 11: 4.35V peak -> ~0.395V at ADC input
+ */
+
+&adc {
+	channel@0 {
+		zephyr,gain = "ADC_GAIN_1_6";
+	};
+};
