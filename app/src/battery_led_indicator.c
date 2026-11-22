@@ -11,11 +11,11 @@
  * A solid green would keep drawing after the charger has stopped.
  *
  * On dock, under hold: green flash (350 ms on, 2 s off) while the window
- * is open or the cell has risen. The pin blinks for a weak couple the
- * same way it blinks for a real charge, so the colour waits on voltage.
- * After 15 min on the case, if the cell is not 12 mV above the sample
- * taken at the start of the window, red stays on. A later rise of 12 mV
- * returns to the green flash and opens a new window.
+ * is open or the cell has risen. A blinking status pin means the charger
+ * is delivering current, so that case stays on the green flash.
+ * After 15 min on the case with the pin steady and the cell not 12 mV
+ * above the sample taken at the start of the window, red stays on.
+ * A later rise of 12 mV returns to the green flash and opens a new window.
  *
  * Infrared stays off. A live pulse stream owns the emitters.
  */
@@ -231,8 +231,6 @@ void battery_led_indicator_apply(bool on_dock, bool worn, uint8_t battery_pct,
 {
 	enum indicator_pattern want;
 
-	ARG_UNUSED(charge_active);
-
 	if (worn) {
 		if (active_pattern != INDICATOR_NONE) {
 			led_gen++;
@@ -259,6 +257,12 @@ void battery_led_indicator_apply(bool on_dock, bool worn, uint8_t battery_pct,
 	if (in_hold_range(battery_pct, battery_mv)) {
 		fill_reset();
 		want = INDICATOR_HOLD_GREEN;
+	} else if (charge_active) {
+		/* STAT is blinking, so current is entering the cell.
+		 * Do not latch the not-filling red over an active charge.
+		 */
+		fill_reset();
+		want = INDICATOR_FLASH_GREEN;
 	} else {
 		fill_note(battery_mv);
 		want = fill_fault ? INDICATOR_FAULT_RED : INDICATOR_FLASH_GREEN;

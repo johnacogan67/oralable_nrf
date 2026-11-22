@@ -40,6 +40,8 @@ python3 "$SCRIPT_DIR/verify_firmware_workspace.py" \
   --ncs-root "$NCS_ROOT" \
   --toolchain "$TOOLCHAIN"
 
+python3 "$SCRIPT_DIR/require_image_version_bump.py" check gen2
+
 export PATH="$TOOLCHAIN/bin:$PATH"
 export ZEPHYR_BASE="$NCS_ROOT/zephyr"
 export ZEPHYR_SDK_INSTALL_DIR="$TOOLCHAIN/opt/zephyr-sdk"
@@ -61,6 +63,7 @@ MERGED="$ROOT/$BUILD_DIR/merged.hex"
 SIGNED="$ROOT/$BUILD_DIR/app/zephyr/zephyr.signed.bin"
 ELF="$ROOT/$BUILD_DIR/app/zephyr/zephyr.elf"
 test -s "$MERGED" && test -s "$SIGNED" && test -s "$ELF"
+python3 "$SCRIPT_DIR/require_image_version_bump.py" record gen2
 
 echo "Gen2 patient candidate build complete: $MERGED"
 echo "NON-RELEASE: no flashing, OTA packaging, artifact promotion, or compatibility claim was performed."

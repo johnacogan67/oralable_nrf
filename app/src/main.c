@@ -178,18 +178,6 @@ static void apply_battery_leds(void)
 	int32_t mv;
 	uint8_t battery_pct;
 
-	/* Live temple stream owns the emitters. A zombie "connected" link
-	 * with no successful notifies must not block pad green / off-pad dark.
-	 */
-	if (ble_is_connected() && tgm_service_ppg_stream_live())
-	{
-		return;
-	}
-
-	/* Kill leftover worn red/IR before status green (or dark). */
-	(void)ppg_set_led_pa(PPG_LED_RED, 0);
-	(void)ppg_set_led_pa(PPG_LED_IR, 0);
-
 	mv = battery_get_last_measurement();
 	battery_pct = battery_voltage_to_percent(mv);
 
@@ -199,9 +187,8 @@ static void apply_battery_leds(void)
 		battery_pct = BATTERY_LED_FULL_THRESHOLD_PCT;
 	}
 
-	/* Disconnected: status LEDs even if worn is still latched (no PPG).
-	 * STAT charging/taper counts as on-pad so leftover Dual A mode 3
-	 * cannot hide the charge light.
+	/* STAT charging/taper counts as on-pad so a live phone stream
+	 * cannot hide the charge light behind the sensing LED.
 	 */
 	bool led_on_pad = on_dock;
 
@@ -210,6 +197,19 @@ static void apply_battery_leds(void)
 		led_on_pad = true;
 	}
 #endif
+
+	/* Worn measurement off the case owns the emitters. On the case,
+	 * and off the case when not worn, the status light runs.
+	 */
+	if (!led_on_pad && worn && ble_is_connected() &&
+	    tgm_service_ppg_stream_live())
+	{
+		return;
+	}
+
+	/* Kill leftover worn red/IR before status green (or dark). */
+	(void)ppg_set_led_pa(PPG_LED_RED, 0);
+	(void)ppg_set_led_pa(PPG_LED_IR, 0);
 
 	battery_led_indicator_apply(led_on_pad, false, battery_pct, mv,
 				    status_charge_active_effective());
@@ -1271,22 +1271,24 @@ int main(void)
 		if (++led_refresh_s >= 2) {
 			led_refresh_s = 0;
 			const bool link_idle = tgm_service_link_notify_idle();
-			const bool pad_owns_leds =
-				stat_on_pad_now() &&
-				!tgm_service_mode3_pad_grace_active() &&
-				(!tgm_service_sensor_notify_enabled() ||
-				 link_idle);
+			const bool on_pad = stat_on_pad_now();
+			const bool stream_live =
+				ble_is_connected() &&
+				tgm_service_ppg_notify_active() &&
+				!link_idle;
 
-			if (pad_owns_leds) {
+			/* On the case the charge light owns the LED, even while
+			 * the phone is still taking pulse samples. Off the case
+			 * the red sensing LED runs only for a worn measurement.
+			 */
+			if (on_pad &&
+			    !tgm_service_mode3_pad_grace_active() &&
+			    !tgm_service_connect_probe_active()) {
 				if (ble_is_connected() && link_idle) {
 					ble_force_recover("led policy pad idle");
 				}
-				if (!tgm_service_connect_probe_active()) {
-					apply_battery_leds();
-				}
-			} else if (ble_is_connected() &&
-				   tgm_service_ppg_notify_active() &&
-				   !link_idle) {
+				apply_battery_leds();
+			} else if (worn && stream_live) {
 				apply_worn_sensing_leds();
 			} else if (!tgm_service_connect_probe_active()) {
 				if (ble_is_connected() &&

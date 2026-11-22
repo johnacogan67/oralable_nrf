@@ -60,6 +60,8 @@ fi
 
 python3 "${REPO_ROOT}/scripts/verify_firmware_workspace.py" --track gen1_release
 
+python3 "${REPO_ROOT}/scripts/require_image_version_bump.py" check gen1
+
 echo "==> Sysbuild (${BOARD}) -> ${BUILD_DIR}"
 if [[ "${Pristine}" -eq 1 ]]; then
   west build -b "${BOARD}" -d "${REPO_ROOT}/${BUILD_DIR}" -p always "${APP_DIR}" --sysbuild -- \
@@ -82,6 +84,8 @@ fi
 
 python3 "${REPO_ROOT}/scripts/verify_firmware_artifacts.py" \
   --build-dir "${BUILD_DIR}" --write-metadata
+
+python3 "${REPO_ROOT}/scripts/require_image_version_bump.py" record gen1
 
 echo
 echo "==> Build complete"

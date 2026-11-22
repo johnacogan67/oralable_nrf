@@ -17,7 +17,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ble, CONFIG_APP_LOG_LEVEL);
 
-/* TGM primary service — scan response helps nRF Connect / iOS identify Oralable without relying on name alone. */
+/* TGM primary service — scan response helps nRF Connect / iOS identify the clip without relying on name alone. */
 #define ORALABLE_TGM_SVC_UUID_VAL \
     BT_UUID_128_ENCODE(0x3a0ff000, 0x98c4, 0x46b2, 0x94af, 0x1aee0fd4c48e)
 
@@ -35,6 +35,8 @@ static struct k_work_delayable adv_fallback_work;
 static struct bt_conn *current_conn;
 static bool connected;
 static bool advertising;
+/** bt_conn_disconnect has been asked, and on_disconnected has not run yet. */
+static bool disconnect_pending;
 /** Fast connectable advertising until this uptime (ms), then slow interval to save energy. */
 static int64_t fast_adv_until_ms;
 static bool mtu_exchange_busy;
@@ -80,6 +82,20 @@ static void adv_fallback_work_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
 
+    /* The phone still holds the link. Ask again, but do not advertise
+     * until on_disconnected runs. Advertising early is what made nRF
+     * Connect snap straight back onto the module.
+     */
+    if (disconnect_pending)
+    {
+        if (current_conn)
+        {
+            (void)bt_conn_disconnect(current_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+        }
+        (void)k_work_reschedule(&adv_fallback_work, K_SECONDS(ADV_FALLBACK_S));
+        return;
+    }
+
     if (connected)
     {
         return;
@@ -92,6 +108,11 @@ static void adv_fallback_work_handler(struct k_work *work)
 
 void ble_ensure_advertising(void)
 {
+    if (disconnect_pending)
+    {
+        return;
+    }
+
     if (connected)
     {
         /* Zombie: stack still "connected", CCC on, no notifies — red stays
@@ -116,24 +137,50 @@ void ble_ensure_advertising(void)
 
 void ble_force_recover(const char *why)
 {
-    LOG_WRN("BLE recover: %s connected=%d", why ? why : "?", connected);
+    int err;
+
+    LOG_WRN("BLE recover: %s connected=%d pending=%d", why ? why : "?",
+            connected, disconnect_pending);
     tgm_service_fw_log_printf("fw: ble recover %s", why ? why : "?");
     tgm_service_clear_optical_leds();
 
-    if (current_conn)
+    if (!current_conn)
     {
-        (void)bt_conn_disconnect(current_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
-    }
-
-    if (connected)
-    {
+        disconnect_pending = false;
         connected = false;
         advertising = false;
         tgm_service_on_disconnect();
+        fast_adv_until_ms = k_uptime_get() + 90000;
+        k_work_submit(&adv_work);
+        return;
     }
 
+    if (disconnect_pending)
+    {
+        return;
+    }
+
+    err = bt_conn_disconnect(current_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+    if (err == 0 || err == -EALREADY)
+    {
+        /* Stay "connected" until on_disconnected. The main loop must
+         * not start advertising over a link the phone has not dropped.
+         */
+        disconnect_pending = true;
+        fast_adv_until_ms = k_uptime_get() + 90000;
+        (void)k_work_reschedule(&adv_fallback_work, K_SECONDS(ADV_FALLBACK_S));
+        return;
+    }
+
+    LOG_WRN("bt_conn_disconnect failed: %d", err);
+    disconnect_pending = false;
+    bt_conn_unref(current_conn);
+    current_conn = NULL;
+    connected = false;
+    advertising = false;
+    tgm_service_on_disconnect();
     fast_adv_until_ms = k_uptime_get() + 90000;
-    (void)k_work_reschedule(&adv_fallback_work, K_SECONDS(ADV_FALLBACK_S));
+    k_work_submit(&adv_work);
 }
 
 static void note_negotiated_att_mtu(struct bt_conn *conn, uint16_t mtu)
@@ -298,6 +345,7 @@ void on_connected(struct bt_conn *conn, uint8_t err)
     }
     current_conn = bt_conn_ref(conn);
     connected = true;
+    disconnect_pending = false;
     advertising = false;
     (void)k_work_cancel_delayable(&adv_fallback_work);
     tgm_service_on_connected();
@@ -320,6 +368,7 @@ void on_disconnected(struct bt_conn *conn, uint8_t reason)
     }
 
     mtu_exchange_busy = false;
+    disconnect_pending = false;
     if (connected)
     {
         connected = false;
